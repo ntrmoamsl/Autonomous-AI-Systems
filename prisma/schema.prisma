@@ -6,8 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // Business Profile - The "Permanent Memory" of the AI agent
@@ -147,4 +148,22 @@ model AgentLog {
   executionTime Int?     // In milliseconds
   business      BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
   createdAt     DateTime @default(now())
+}
+
+// Agent Settings - Persists UI settings across page reloads
+model AgentSettings {
+  id              String   @id @default(cuid())
+  businessId      String?  // Optional: link to business profile
+  autoInterval    Int      @default(240) // Auto-run interval in minutes
+  selectedTimes   String   @default("9ص,6م") // Comma-separated Arabic 12h times
+  autoPublish     Boolean  @default(false)
+  autoGenerate    Boolean  @default(false)
+  scheduleFreq    String   @default("daily")
+  imageAspectRatio String  @default("auto")
+  autoReplyEnabled Boolean @default(false)
+  genContentType  String   @default("varied")
+  genCount        Int      @default(3)
+  customIntervalUnit String @default("minutes") // minutes or hours
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }

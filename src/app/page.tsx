@@ -302,9 +302,94 @@ export default function Home() {
   const [autoPublish, setAutoPublish] = useState(false);
   const [autoGenerate, setAutoGenerate] = useState(false);
 
+  // Settings persistence
+  const settingsIdRef = useRef<string | null>(null);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const settingsLoadedRef = useRef(false);
+  const businessIdRef = useRef<string | null>(null);
+
   // Schedule dialog
   const [scheduleDialogPost, setScheduleDialogPost] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState('');
+
+  // ============================================================
+  // Settings Persistence
+  // ============================================================
+
+  const loadSettings = useCallback(async (businessId?: string) => {
+    try {
+      const url = businessId ? `/api/settings?businessId=${businessId}` : '/api/settings';
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.settings) {
+        const s = data.settings;
+        settingsIdRef.current = s.id;
+        if (s.autoInterval !== undefined && s.autoInterval !== null) setAutoInterval(s.autoInterval);
+        if (s.selectedTimes) setSelectedTimes(s.selectedTimes.split(','));
+        if (s.autoPublish !== undefined && s.autoPublish !== null) setAutoPublish(s.autoPublish);
+        if (s.autoGenerate !== undefined && s.autoGenerate !== null) setAutoGenerate(s.autoGenerate);
+        if (s.scheduleFreq) setScheduleFreq(s.scheduleFreq);
+        if (s.imageAspectRatio) setImageAspectRatio(s.imageAspectRatio);
+        if (s.autoReplyEnabled !== undefined && s.autoReplyEnabled !== null) setAutoReplyEnabled(s.autoReplyEnabled);
+        if (s.genContentType) setGenContentType(s.genContentType);
+        if (s.genCount !== undefined && s.genCount !== null) setGenCount(s.genCount);
+        if (s.customIntervalUnit) setCustomIntervalUnit(s.customIntervalUnit as 'minutes' | 'hours');
+        settingsLoadedRef.current = true;
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      settingsLoadedRef.current = true;
+    }
+  }, []);
+
+  const saveSettings = useCallback(async () => {
+    try {
+      const body: Record<string, unknown> = {
+        autoInterval,
+        selectedTimes: selectedTimes.join(','),
+        autoPublish,
+        autoGenerate,
+        scheduleFreq,
+        imageAspectRatio,
+        autoReplyEnabled,
+        genContentType,
+        genCount,
+        customIntervalUnit,
+      };
+      if (settingsIdRef.current) body.id = settingsIdRef.current;
+      if (businessIdRef.current) body.businessId = businessIdRef.current;
+
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.settings?.id) {
+        settingsIdRef.current = data.settings.id;
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error);
+    }
+  }, [autoInterval, selectedTimes, autoPublish, autoGenerate, scheduleFreq, imageAspectRatio, autoReplyEnabled, genContentType, genCount, customIntervalUnit]);
+
+  // Debounced save - saves 1 second after last change
+  const debouncedSave = useCallback(() => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      if (settingsLoadedRef.current) saveSettings();
+    }, 1000);
+  }, [saveSettings]);
+
+  // Save settings whenever they change (after initial load)
+  useEffect(() => {
+    if (settingsLoadedRef.current) {
+      debouncedSave();
+    }
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [autoInterval, selectedTimes, autoPublish, autoGenerate, scheduleFreq, imageAspectRatio, autoReplyEnabled, genContentType, genCount, customIntervalUnit, debouncedSave]);
 
   // ============================================================
   // Data Loading
@@ -317,6 +402,7 @@ export default function Home() {
       if (data.profiles && data.profiles.length > 0) {
         const activeProfile = data.profiles.find((p: BusinessProfile) => p.isActive) || data.profiles[0];
         setBusiness(activeProfile);
+        businessIdRef.current = activeProfile.id;
         setForm({
           companyName: activeProfile.companyName,
           description: activeProfile.description,
@@ -767,19 +853,19 @@ export default function Home() {
   useEffect(() => {
     if (!hasLoadedRef.current) {
       hasLoadedRef.current = true;
-      const timer = setTimeout(() => { loadBusiness(); }, 0);
+      const timer = setTimeout(() => { loadBusiness(); loadSettings(); }, 0);
       return () => clearTimeout(timer);
     }
-  }, [loadBusiness]);
+  }, [loadBusiness, loadSettings]);
 
   const hasRefreshedRef = useRef(false);
   useEffect(() => {
     if (business && !hasRefreshedRef.current) {
       hasRefreshedRef.current = true;
-      const timer = setTimeout(() => { refreshAll(); }, 0);
+      const timer = setTimeout(() => { refreshAll(); loadSettings(business.id); }, 0);
       return () => clearTimeout(timer);
     }
-  }, [business, refreshAll]);
+  }, [business, refreshAll, loadSettings]);
 
   // ============================================================
   // Helpers
