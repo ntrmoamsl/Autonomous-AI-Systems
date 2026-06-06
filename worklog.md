@@ -498,3 +498,39 @@ Stage Summary:
 - Two trigger points: after content generation completes, and after pending media becomes ready
 - Visual explanations added in both Dashboard and Calendar tabs
 - User's concern fully addressed: "مجرد دقائق وليس ساعات — النشر يتم فوراً بعد تجهيز المحتوى"
+
+---
+Task ID: 13
+Agent: Main Agent
+Task: Migrate from SQLite to Supabase PostgreSQL + add settings persistence + push to GitHub + prepare for Vercel deployment
+
+Work Log:
+- Migrated Prisma schema from SQLite to PostgreSQL (Supabase)
+- Updated .env with Supabase connection strings (pooler URL with pgbouncer=true)
+- Added AgentSettings model to Prisma schema for persisting UI settings
+- Created all 8 tables in Supabase via raw SQL (BusinessProfile, ContentPost, ContentIdea, ScheduleConfig, SmartReply, AnalyticsSnapshot, AgentLog, AgentSettings)
+- Created /api/settings API route (GET for loading, PUT for saving)
+- Updated page.tsx with settings persistence:
+  - Added loadSettings() function to fetch settings from API on page load
+  - Added saveSettings() function to persist settings to database
+  - Added debounced auto-save (1 second after any change)
+  - Persists: autoInterval, selectedTimes, autoPublish, autoGenerate, scheduleFreq, imageAspectRatio, autoReplyEnabled, genContentType, genCount, customIntervalUnit
+  - Settings survive page reloads!
+- Updated db.ts to reduce Prisma logging (error/warn only)
+- Updated package.json:
+  - Added postinstall script for Vercel (prisma generate)
+  - Updated build script to include prisma generate
+  - Fixed dev script to override system DATABASE_URL
+- Updated next.config.ts: removed output: "standalone" for Vercel compatibility
+- Pushed project to GitHub: https://github.com/ntrmoamsl/Autonomous-AI-Systems
+- Created .env.example with documentation
+- Removed .env and SQLite DB from git tracking
+- All lint checks pass with zero errors
+- API verified: GET /api/settings returns 200, PUT saves settings, data persists across requests
+
+Stage Summary:
+- Database migrated from SQLite to Supabase PostgreSQL (8 tables created)
+- Settings now persist across page reloads via /api/settings endpoint
+- All UI settings (autoInterval, selectedTimes, autoPublish, etc.) are saved to Supabase
+- Project pushed to GitHub: https://github.com/ntrmoamsl/Autonomous-AI-Systems
+- Ready for Vercel deployment (instructions provided to user)
