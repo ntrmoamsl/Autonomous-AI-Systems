@@ -113,3 +113,47 @@ Stage Summary:
 - Model-specific settings: resolution only for GPT Image-2, dynamic aspect ratios per model
 - Settings tab properly shows both models with badges
 - Clean model selection UX with contextual hints
+
+---
+Task ID: 4
+Agent: Main Agent
+Task: Integrate Claude Opus 4.8 as the Executive Brain via Kie.ai API
+
+Work Log:
+- Updated /src/lib/ai.ts:
+  - Added ClaudeMessage and ClaudeResponse TypeScript interfaces
+  - Added callClaudeOpus() function for Claude Opus 4.8 via Kie.ai API
+  - Endpoint: POST https://api.kie.ai/claude/v1/messages
+  - Auth: Bearer token (KIE_API_KEY) + X-Api-Key + anthropic-version headers
+  - Model: claude-opus-4-8 with thinkingFlag support
+  - System prompt passed as first assistant message (Claude API convention)
+  - Max tokens configurable (default: 8192)
+  - Response parsed from content blocks (text type)
+  - Retained z-ai-web-dev-sdk as fallback getAI() function
+- Updated /src/app/api/content/generate/route.ts:
+  - Replaced getAI()/zai.chat.completions.create() with callClaudeOpus()
+  - Content generation now uses Claude Opus 4.8 as the Executive Brain
+  - Updated aiModel field to 'claude-opus-4-8' in saved posts
+  - Increased maxTokens to 8192 for better content generation
+- Updated /src/app/api/replies/route.ts:
+  - Replaced getAI()/zai.chat.completions.create() with callClaudeOpus()
+  - Smart replies now use Claude Opus 4.8 for more intelligent responses
+  - maxTokens set to 2048 for replies (shorter responses)
+- Updated /src/app/page.tsx:
+  - Content Generation tab: "مدعوم بـ Claude Opus 4.8 — الدماغ التنفيذي"
+  - Smart Replies tab: "مدعوم بـ Claude Opus 4.8 — الوكيل الذكي"
+  - Settings tab AI Models section:
+    - Claude Opus 4.8 shown with violet gradient background and "الدماغ التنفيذي" badge
+    - Description: "أقوى نموذج لغوي - توليد محتوى، ردود ذكية، قرارات تسويقية (via Kie.ai)"
+    - Listed first (before GPT Image-2 and Grok Imagine)
+  - Footer updated to "مدعوم بالذكاء الاصطناعي | Claude Opus 4.8 + GPT Image-2 + Grok Imagine"
+- All lint checks pass with zero errors
+- Verified with Agent Browser: all tabs render correctly with Claude Opus 4.8 branding
+- Dev server running with no errors
+
+Stage Summary:
+- Claude Opus 4.8 is now the "Executive Brain" of the AI Marketing Agent
+- All LLM operations (content generation, smart replies) use Claude Opus 4.8 via Kie.ai
+- API follows Kie.ai Claude Opus 4.8 OpenAPI spec with proper auth headers
+- UI properly reflects the three-model architecture: Claude Opus 4.8 (brain) + GPT Image-2 (images) + Grok Imagine (alt images)
+- Settings tab shows complete model hierarchy with appropriate badges

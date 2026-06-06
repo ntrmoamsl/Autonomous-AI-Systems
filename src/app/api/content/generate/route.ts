@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getAI } from '@/lib/ai';
+import { callClaudeOpus } from '@/lib/ai';
 
-// POST - Generate content using AI
+// POST - Generate content using Claude Opus 4.8 (Executive Brain)
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -89,16 +89,11 @@ ${usedIdeas}` : ''}
   ]
 }`;
 
-    const zai = await getAI();
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: 'assistant', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.85,
-    });
-
-    const responseText = completion.choices[0]?.message?.content || '';
+    // Use Claude Opus 4.8 as the Executive Brain via Kie.ai
+    const responseText = await callClaudeOpus(
+      [{ role: 'user', content: userPrompt }],
+      { systemPrompt, maxTokens: 8192 }
+    );
 
     // Parse the JSON response
     let generatedPosts;
@@ -147,7 +142,7 @@ ${usedIdeas}` : ''}
           hashtags: Array.isArray(post.hashtags) ? post.hashtags.join(',') : (post.hashtags || ''),
           cta: post.cta || null,
           status: 'draft',
-          aiModel: 'z-ai-llm',
+          aiModel: 'claude-opus-4-8',
           generationPrompt: userPrompt,
         },
       });

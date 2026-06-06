@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getAI } from '@/lib/ai';
+import { callClaudeOpus } from '@/lib/ai';
 
-// POST - Generate smart reply
+// POST - Generate smart reply using Claude Opus 4.8
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -46,16 +46,11 @@ ${faqs ? `الأسئلة الشائعة: ${typeof faqs === 'string' ? faqs : JSO
 5. أجب باللغة العربية
 6. أجب بصيغة JSON فقط: {"reply": "الرد هنا", "intentType": "question|purchase|complaint|engagement"}`;
 
-    const zai = await getAI();
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: 'assistant', content: systemPrompt },
-        { role: 'user', content: `رسالة المستخدم: "${message}"` },
-      ],
-      temperature: 0.7,
-    });
-
-    const responseText = completion.choices[0]?.message?.content || '';
+    // Use Claude Opus 4.8 as the Executive Brain via Kie.ai
+    const responseText = await callClaudeOpus(
+      [{ role: 'user', content: `رسالة المستخدم: "${message}"` }],
+      { systemPrompt, maxTokens: 2048 }
+    );
 
     let replyData;
     try {

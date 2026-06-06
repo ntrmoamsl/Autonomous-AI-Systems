@@ -2,6 +2,7 @@ import ZAI from 'z-ai-web-dev-sdk';
 
 let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null;
 
+// Fallback: z-ai-web-dev-sdk for simple LLM calls
 export async function getAI() {
   if (!zaiInstance) {
     zaiInstance = await ZAI.create();
@@ -36,6 +37,97 @@ export async function callKieAI(endpoint: string, body: Record<string, unknown>,
   }
   
   return response.json();
+}
+
+// ============================================================
+// Claude Opus 4.8 - The Executive Brain (via Kie.ai API)
+// ============================================================
+export interface ClaudeMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface ClaudeResponse {
+  id: string;
+  model: string;
+  role: string;
+  content: Array<{
+    type: 'text' | 'tool_use';
+    text?: string;
+    name?: string;
+    input?: Record<string, unknown>;
+    id?: string;
+  }>;
+  stop_reason: string;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+  };
+}
+
+/**
+ * Call Claude Opus 4.8 via Kie.ai API - the Executive Brain of the marketing agent.
+ * 
+ * This is the primary AI model for:
+ * - Content generation (social media posts)
+ * - Smart replies to customer messages
+ * - Marketing strategy decisions
+ * - Content analysis and recommendations
+ */
+export async function callClaudeOpus(
+  messages: ClaudeMessage[],
+  options: {
+    systemPrompt?: string;
+    maxTokens?: number;
+    temperature?: number;
+    thinkingFlag?: boolean;
+  } = {}
+): Promise<string> {
+  const apiKey = getKieApiKey();
+  const { systemPrompt, maxTokens = 8192, thinkingFlag = true } = options;
+
+  // Build the messages array with system prompt as the first assistant message
+  // (Claude API supports system as first assistant message or as separate field)
+  const apiMessages: ClaudeMessage[] = [];
+  
+  if (systemPrompt) {
+    // Prepend system instructions as the first assistant message
+    apiMessages.push({ role: 'assistant', content: systemPrompt });
+  }
+  
+  apiMessages.push(...messages);
+
+  const response = await fetch(`${KIE_API_BASE}/claude/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'X-Api-Key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-opus-4-8',
+      messages: apiMessages,
+      max_tokens: maxTokens,
+      stream: false,
+      thinkingFlag,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Claude Opus 4.8 API error (${response.status}): ${errorText}`);
+  }
+
+  const data: ClaudeResponse = await response.json();
+
+  // Extract text from the response content blocks
+  const textContent = data.content
+    .filter(block => block.type === 'text' && block.text)
+    .map(block => block.text)
+    .join('\n');
+
+  return textContent;
 }
 
 // Image generation input types

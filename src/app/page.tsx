@@ -877,7 +877,7 @@ export default function Home() {
                           </div>
                           <div>
                             <h3 className="text-xl font-bold mb-1">توليد محتوى ذكي</h3>
-                            <p className="text-slate-400 text-sm">الوكيل الذكي يولد محتوى متنوعًا بناءً على بيانات شركتك وتاريخ الأداء</p>
+                            <p className="text-slate-400 text-sm">مدعوم بـ <span className="text-violet-400 font-medium">Claude Opus 4.8</span> — الدماغ التنفيذي يولد محتوى متنوعًا بناءً على بيانات شركتك وتاريخ الأداء</p>
                           </div>
                         </div>
 
@@ -1402,7 +1402,7 @@ export default function Home() {
                       </div>
                       <div>
                         <h3 className="text-xl font-bold mb-1">الردود الذكية</h3>
-                        <p className="text-slate-400 text-sm">الوكيل الذكي يفهم نية المستخدم ويرد بطبيعية تشبه البشر</p>
+                        <p className="text-slate-400 text-sm">مدعوم بـ <span className="text-violet-400 font-medium">Claude Opus 4.8</span> — الوكيل الذكي يفهم نية المستخدم ويرد بطبيعية تشبه البشر</p>
                       </div>
                     </div>
 
@@ -1558,12 +1558,15 @@ export default function Home() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <div className="p-3 rounded-lg bg-slate-700/30">
+                    <div className="p-3 rounded-lg bg-gradient-to-r from-violet-500/10 to-purple-500/10 border border-violet-500/20">
                       <div className="flex items-center justify-between mb-1">
-                        <p className="font-medium text-sm">توليد المحتوى</p>
-                        <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">نشط</Badge>
+                        <div className="flex items-center gap-2">
+                          <Brain className="w-3.5 h-3.5 text-violet-400" />
+                          <p className="font-medium text-sm">Claude Opus 4.8</p>
+                        </div>
+                        <Badge className="bg-violet-500/20 text-violet-400 border-violet-500/30">الدماغ التنفيذي</Badge>
                       </div>
-                      <p className="text-xs text-slate-400">نموذج لغوي متقدم (Claude/Z.ai) - توليد نصوص تسويقية احترافية</p>
+                      <p className="text-xs text-slate-400">أقوى نموذج لغوي - توليد محتوى، ردود ذكية، قرارات تسويقية (via Kie.ai)</p>
                     </div>
                     <div className="p-3 rounded-lg bg-slate-700/30 border border-amber-500/20">
                       <div className="flex items-center justify-between mb-1">
@@ -1630,7 +1633,7 @@ export default function Home() {
         <footer className="mt-auto border-t border-white/10 bg-slate-900/60 backdrop-blur-xl px-6 py-4">
           <div className="flex items-center justify-between text-sm text-slate-500">
             <p>وكيل التسويق الذكي - AI Marketing Agent</p>
-            <p>مدعوم بالذكاء الاصطناعي | GPT Image-2 + Grok Imagine</p>
+            <p>مدعوم بالذكاء الاصطناعي | Claude Opus 4.8 + GPT Image-2 + Grok Imagine</p>
           </div>
         </footer>
       </main>
