@@ -152,8 +152,38 @@ export default function Home() {
     autoGenerate: false,
   });
 
-  // Image aspect ratio state
-  const [imageAspectRatio, setImageAspectRatio] = useState('1:1');
+  // Image generation model & settings state
+  const [imageModel, setImageModel] = useState<'gpt-image-2' | 'grok-imagine'>('gpt-image-2');
+  const [imageAspectRatio, setImageAspectRatio] = useState('auto');
+  const [imageResolution, setImageResolution] = useState('1K');
+
+  // Aspect ratio options per model
+  const grokAspectRatios = [
+    { value: '1:1', label: 'مربع (1:1)' },
+    { value: '16:9', label: 'عريض (16:9)' },
+    { value: '9:16', label: 'طويل (9:16)' },
+    { value: '3:2', label: 'أفقي (3:2)' },
+    { value: '2:3', label: 'عمودي (2:3)' },
+  ];
+
+  const gptImage2AspectRatios = [
+    { value: 'auto', label: 'تلقائي' },
+    { value: '1:1', label: 'مربع (1:1)' },
+    { value: '3:2', label: 'أفقي (3:2)' },
+    { value: '2:3', label: 'عمودي (2:3)' },
+    { value: '4:3', label: 'كلاسيكي (4:3)' },
+    { value: '3:4', label: 'عمودي كلاسيكي (3:4)' },
+    { value: '5:4', label: 'فوتو (5:4)' },
+    { value: '4:5', label: 'عمودي فوتو (4:5)' },
+    { value: '16:9', label: 'عريض (16:9)' },
+    { value: '9:16', label: 'طويل (9:16)' },
+    { value: '2:1', label: 'بانوراما (2:1)' },
+    { value: '1:2', label: 'عمودي بانوراما (1:2)' },
+    { value: '21:9', label: 'سينمائي (21:9)' },
+    { value: '9:21', label: 'طويل سينمائي (9:21)' },
+  ];
+
+  const aspectRatios = imageModel === 'gpt-image-2' ? gptImage2AspectRatios : grokAspectRatios;
 
   // Load data
   const loadBusiness = useCallback(async () => {
@@ -360,7 +390,7 @@ export default function Home() {
     setGenerating(false);
   };
 
-  // Async image generation with Grok Imagine
+  // Async image generation with Grok Imagine or GPT Image-2
   const handleGenerateImage = async (postId: string, imagePrompt: string) => {
     try {
       // Create image generation task
@@ -371,6 +401,8 @@ export default function Home() {
           postId, 
           prompt: imagePrompt,
           aspectRatio: imageAspectRatio,
+          resolution: imageModel === 'gpt-image-2' ? imageResolution : undefined,
+          model: imageModel,
         }),
       });
       const data = await res.json();
@@ -387,7 +419,7 @@ export default function Home() {
           });
           return next;
         });
-        toast({ title: 'جارٍ إنشاء الصورة', description: 'تم إرسال طلب إنشاء صورة Grok Imagine...' });
+        toast({ title: 'جارٍ إنشاء الصورة', description: `تم إرسال طلب إنشاء صورة ${imageModel === 'gpt-image-2' ? 'GPT Image-2' : 'Grok Imagine'}...` });
       } else {
         toast({ title: 'خطأ', description: data.error || 'فشل في إنشاء طلب الصورة', variant: 'destructive' });
       }
@@ -849,7 +881,7 @@ export default function Home() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                           <div>
                             <label className="text-sm text-slate-400 mb-1 block">نوع المحتوى</label>
                             <Select value={genContentType} onValueChange={setGenContentType}>
@@ -875,20 +907,72 @@ export default function Home() {
                               className="bg-slate-700/50 border-white/10 text-white placeholder:text-slate-500"
                             />
                           </div>
-                          <div>
-                            <label className="text-sm text-slate-400 mb-1 block">نسبة أبعاد الصورة</label>
-                            <Select value={imageAspectRatio} onValueChange={setImageAspectRatio}>
-                              <SelectTrigger className="bg-slate-700/50 border-white/10 text-white">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="1:1">مربع (1:1)</SelectItem>
-                                <SelectItem value="16:9">عريض (16:9)</SelectItem>
-                                <SelectItem value="9:16">طويل (9:16)</SelectItem>
-                                <SelectItem value="3:2">أفقي (3:2)</SelectItem>
-                                <SelectItem value="2:3">عمودي (2:3)</SelectItem>
-                              </SelectContent>
-                            </Select>
+                        </div>
+
+                        {/* Image Generation Settings */}
+                        <div className="p-4 rounded-xl bg-slate-700/30 border border-white/5 space-y-4 mb-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <ImageIcon className="w-4 h-4 text-violet-400" />
+                            <h4 className="text-sm font-medium text-violet-300">إعدادات توليد الصور</h4>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                              <label className="text-xs text-slate-400 mb-1 block">نموذج التوليد</label>
+                              <Select value={imageModel} onValueChange={(v: 'gpt-image-2' | 'grok-imagine') => {
+                                setImageModel(v);
+                                // Reset aspect ratio when model changes
+                                setImageAspectRatio(v === 'gpt-image-2' ? 'auto' : '1:1');
+                              }}>
+                                <SelectTrigger className="bg-slate-600/50 border-white/10 text-white h-9 text-sm">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="gpt-image-2">
+                                    <span className="flex items-center gap-2">
+                                      <Sparkles className="w-3 h-3 text-amber-400" />
+                                      GPT Image-2
+                                    </span>
+                                  </SelectItem>
+                                  <SelectItem value="grok-imagine">
+                                    <span className="flex items-center gap-2">
+                                      <Zap className="w-3 h-3 text-violet-400" />
+                                      Grok Imagine
+                                    </span>
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <p className="text-[10px] text-slate-500 mt-1">
+                                {imageModel === 'gpt-image-2' ? 'جودة عالية، نسب أبعاد متعددة' : 'سريع، 5 نسب أبعاد'}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-400 mb-1 block">نسبة الأبعاد</label>
+                              <Select value={imageAspectRatio} onValueChange={setImageAspectRatio}>
+                                <SelectTrigger className="bg-slate-600/50 border-white/10 text-white h-9 text-sm">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {aspectRatios.map((ar) => (
+                                    <SelectItem key={ar.value} value={ar.value}>{ar.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            {imageModel === 'gpt-image-2' && (
+                              <div>
+                                <label className="text-xs text-slate-400 mb-1 block">الدقة</label>
+                                <Select value={imageResolution} onValueChange={setImageResolution}>
+                                  <SelectTrigger className="bg-slate-600/50 border-white/10 text-white h-9 text-sm">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="1K">1K (سريع)</SelectItem>
+                                    <SelectItem value="2K">2K (متوازن)</SelectItem>
+                                    <SelectItem value="4K">4K (عالي الجودة)</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -925,7 +1009,7 @@ export default function Home() {
                                         <div className="w-12 h-12 rounded-full bg-violet-500/20 flex items-center justify-center mx-auto mb-3">
                                           <Loader2 className="w-6 h-6 text-violet-400 animate-spin" />
                                         </div>
-                                        <p className="text-xs text-violet-400 font-medium mb-2">Grok Imagine يعمل...</p>
+                                        <p className="text-xs text-violet-400 font-medium mb-2">{imageModel === 'gpt-image-2' ? 'GPT Image-2' : 'Grok Imagine'} يعمل...</p>
                                         <Progress value={imgTask.progress} className="h-1.5 bg-slate-700" />
                                         <p className="text-[10px] text-slate-500 mt-2">قد يستغرق 30-60 ثانية</p>
                                       </div>
@@ -959,7 +1043,7 @@ export default function Home() {
                                           className="bg-violet-500 hover:bg-violet-600 text-xs"
                                         >
                                           <ImageIcon className="w-3 h-3 ml-1" />
-                                          إنشاء صورة (Grok)
+                                          إنشاء صورة ({imageModel === 'gpt-image-2' ? 'GPT' : 'Grok'})
                                         </Button>
                                       </div>
                                     )}
@@ -1481,12 +1565,25 @@ export default function Home() {
                       </div>
                       <p className="text-xs text-slate-400">نموذج لغوي متقدم (Claude/Z.ai) - توليد نصوص تسويقية احترافية</p>
                     </div>
-                    <div className="p-3 rounded-lg bg-slate-700/30">
+                    <div className="p-3 rounded-lg bg-slate-700/30 border border-amber-500/20">
                       <div className="flex items-center justify-between mb-1">
-                        <p className="font-medium text-sm">توليد الصور</p>
-                        <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">نشط</Badge>
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                          <p className="font-medium text-sm">GPT Image-2</p>
+                        </div>
+                        <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">افتراضي</Badge>
                       </div>
-                      <p className="text-xs text-slate-400">Grok Imagine (عبر Kie.ai) - توليد صور احترافية غير متزامن</p>
+                      <p className="text-xs text-slate-400">نموذج توليد صور عالي الجودة - يدعم 14 نسبة أبعاد ودقة تصل إلى 4K</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-slate-700/30 border border-violet-500/20">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <Zap className="w-3.5 h-3.5 text-violet-400" />
+                          <p className="font-medium text-sm">Grok Imagine</p>
+                        </div>
+                        <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">متاح</Badge>
+                      </div>
+                      <p className="text-xs text-slate-400">نموذج توليد صور سريع - 5 نسب أبعاد، إنشاء غير متزامن</p>
                     </div>
                     <div className="p-3 rounded-lg bg-slate-700/30">
                       <div className="flex items-center justify-between mb-1">
@@ -1533,7 +1630,7 @@ export default function Home() {
         <footer className="mt-auto border-t border-white/10 bg-slate-900/60 backdrop-blur-xl px-6 py-4">
           <div className="flex items-center justify-between text-sm text-slate-500">
             <p>وكيل التسويق الذكي - AI Marketing Agent</p>
-            <p>مدعوم بالذكاء الاصطناعي | Grok Imagine + Kie.ai</p>
+            <p>مدعوم بالذكاء الاصطناعي | GPT Image-2 + Grok Imagine</p>
           </div>
         </footer>
       </main>

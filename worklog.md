@@ -70,3 +70,46 @@ Stage Summary:
 - Frontend properly handles async image generation with progress tracking
 - New aspect ratio selector for controlling image dimensions
 - All settings correctly reflect Grok Imagine and Kie.ai integration
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Integrate GPT Image-2 model as primary image generation option alongside Grok Imagine
+
+Work Log:
+- Updated /src/lib/ai.ts:
+  - Added GrokImagineInput and GptImage2Input TypeScript interfaces
+  - Updated createGrokImageTask() to accept structured input object
+  - Updated createGptImage2Task() with correct model name 'gpt-image-2-text-to-image'
+  - Added resolution parameter support (1K, 2K, 4K) for GPT Image-2
+  - Added createImageTask() unified function that routes to correct model
+  - GPT Image-2 supports: auto, 1:1, 3:2, 2:3, 4:3, 3:4, 5:4, 4:5, 16:9, 9:16, 2:1, 1:2, 3:1, 1:3, 21:9, 9:21
+  - Grok Imagine supports: 1:1, 3:2, 2:3, 16:9, 9:16
+- Updated /src/app/api/media/image/route.ts:
+  - POST accepts model parameter ('gpt-image-2' or 'grok-imagine', default: 'gpt-image-2')
+  - POST accepts resolution parameter for GPT Image-2
+  - Saves model name to aiModel field in database
+  - Uses createImageTask() unified function for model routing
+  - GET endpoint enhanced to handle both models' response formats
+- Updated /src/app/page.tsx:
+  - Added imageModel state ('gpt-image-2' | 'grok-imagine', default: 'gpt-image-2')
+  - Added imageResolution state ('1K' | '2K' | '4K', default: '1K')
+  - Added dynamic aspect ratio arrays per model (14 options for GPT Image-2, 5 for Grok)
+  - Added "إعدادات توليد الصور" section with model selector, aspect ratio, and resolution
+  - Model selector shows GPT Image-2 (default, amber) and Grok Imagine (violet) with icons
+  - Resolution selector only visible when GPT Image-2 is selected
+  - Aspect ratio resets when model changes (auto for GPT, 1:1 for Grok)
+  - Processing indicator shows selected model name
+  - Image generation button shows model abbreviation (GPT/Grok)
+  - Settings tab updated: GPT Image-2 shown as "افتراضي" (default), Grok as "متاح" (available)
+  - Footer updated to "GPT Image-2 + Grok Imagine"
+- All lint checks pass with zero errors
+- Verified with Agent Browser + VLM: model selector, aspect ratio, resolution all render correctly
+- Dev server running with no errors
+
+Stage Summary:
+- GPT Image-2 is now the default image generation model (high quality, 14 aspect ratios, up to 4K)
+- Grok Imagine available as alternative (faster, 5 aspect ratios)
+- Model-specific settings: resolution only for GPT Image-2, dynamic aspect ratios per model
+- Settings tab properly shows both models with badges
+- Clean model selection UX with contextual hints

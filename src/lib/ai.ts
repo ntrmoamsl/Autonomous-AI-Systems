@@ -38,26 +38,69 @@ export async function callKieAI(endpoint: string, body: Record<string, unknown>,
   return response.json();
 }
 
+// Image generation input types
+export interface GrokImagineInput {
+  prompt: string;
+  aspectRatio?: string; // 2:3, 3:2, 1:1, 16:9, 9:16
+  nsfwChecker?: boolean;
+  enablePro?: boolean;
+}
+
+export interface GptImage2Input {
+  prompt: string;
+  aspectRatio?: string; // auto, 1:1, 3:2, 2:3, 4:3, 3:4, 5:4, 4:5, 16:9, 9:16, 2:1, 1:2, 3:1, 1:3, 21:9, 9:21
+  resolution?: string; // 1K, 2K, 4K
+}
+
 // Grok Imagine - Text to Image (via Kie.ai)
-export async function createGrokImageTask(prompt: string, aspectRatio: string = '1:1') {
+export async function createGrokImageTask(input: GrokImagineInput) {
   return callKieAI('/api/v1/jobs/createTask', {
     model: 'grok-imagine/text-to-image',
     input: {
-      prompt,
-      aspect_ratio: aspectRatio,
-      nsfw_checker: false,
+      prompt: input.prompt,
+      aspect_ratio: input.aspectRatio || '1:1',
+      nsfw_checker: input.nsfwChecker ?? false,
+      ...(input.enablePro !== undefined ? { enable_pro: input.enablePro } : {}),
     },
   });
 }
 
 // GPT Image 2 - Text to Image (via Kie.ai)
-export async function createGptImageTask(prompt: string, aspectRatio: string = '1:1') {
+export async function createGptImage2Task(input: GptImage2Input) {
+  const taskInput: Record<string, unknown> = {
+    prompt: input.prompt,
+  };
+
+  if (input.aspectRatio) {
+    taskInput.aspect_ratio = input.aspectRatio;
+  }
+  
+  if (input.resolution) {
+    taskInput.resolution = input.resolution;
+  }
+
   return callKieAI('/api/v1/jobs/createTask', {
-    model: 'gpt-image/text-to-image',
-    input: {
-      prompt,
-      aspect_ratio: aspectRatio,
-    },
+    model: 'gpt-image-2-text-to-image',
+    input: taskInput,
+  });
+}
+
+// Unified image generation - selects model based on parameter
+export async function createImageTask(
+  model: 'grok-imagine' | 'gpt-image-2',
+  input: { prompt: string; aspectRatio?: string; resolution?: string; }
+) {
+  if (model === 'gpt-image-2') {
+    return createGptImage2Task({
+      prompt: input.prompt,
+      aspectRatio: input.aspectRatio || 'auto',
+      resolution: input.resolution,
+    });
+  }
+  
+  return createGrokImageTask({
+    prompt: input.prompt,
+    aspectRatio: input.aspectRatio || '1:1',
   });
 }
 

@@ -1,19 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { createGrokImageTask, getKieTaskDetail } from '@/lib/ai';
+import { createImageTask, getKieTaskDetail } from '@/lib/ai';
 
-// POST - Generate image using Grok Imagine via Kie.ai API
+// POST - Generate image using Grok Imagine or GPT Image-2 via Kie.ai API
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { postId, prompt, aspectRatio = '1:1', model = 'grok-imagine' } = body;
+    const { postId, prompt, aspectRatio, resolution, model = 'gpt-image-2' } = body;
 
     if (!prompt) {
       return NextResponse.json({ error: 'Image prompt is required' }, { status: 400 });
     }
 
+    // Validate model
+    const validModel = model === 'grok-imagine' ? 'grok-imagine' : 'gpt-image-2';
+
     // Create async image generation task via Kie.ai
-    const taskResult = await createGrokImageTask(prompt, aspectRatio);
+    const taskResult = await createImageTask(validModel, {
+      prompt,
+      aspectRatio: aspectRatio || (validModel === 'gpt-image-2' ? 'auto' : '1:1'),
+      resolution: validModel === 'gpt-image-2' ? (resolution || undefined) : undefined,
+    });
 
     if (taskResult.code !== 200 && taskResult.code !== undefined) {
       return NextResponse.json(
@@ -37,6 +44,7 @@ export async function POST(req: NextRequest) {
         where: { id: postId },
         data: { 
           videoTaskId: taskId, // Reuse this field for image task ID too
+          aiModel: validModel === 'gpt-image-2' ? 'gpt-image-2' : 'grok-imagine',
         },
       });
     }
@@ -44,8 +52,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       taskId,
       postId,
+      model: validModel,
       status: 'processing',
-      message: 'Image generation task created. Use GET /api/media/image?taskId=xxx to check status.',
+      message: `Image generation task created using ${validModel === 'gpt-image-2' ? 'GPT Image-2' : 'Grok Imagine'}. Use GET /api/media/image?taskId=xxx to check status.`,
     });
   } catch (error) {
     console.error('Error creating image task:', error);
@@ -73,15 +82,16 @@ export async function GET(req: NextRequest) {
     const taskStatus = result.data?.taskStatus || result.data?.task_status || result.data?.status || 'unknown';
 
     if (taskStatus === 'SUCCESS' || taskStatus === 'completed' || taskStatus === 'succeeded') {
-      // Extract image URL from result
+      // Extract image URL from result - handles both Grok and GPT Image-2 response formats
       const output = result.data?.output || result.data;
       const imageUrl = output?.image_url || output?.imageUrl || 
                        (Array.isArray(output?.images) ? output.images[0]?.url : null) ||
                        (Array.isArray(output?.image_urls) ? output.image_urls[0] : null) ||
+                       (Array.isArray(output?.results) ? output.results[0]?.url : null) ||
                        output?.url || output?.result;
 
       if (postId && imageUrl) {
-        // Store the image URL (not base64 since it's a URL)
+        // Store the image URL
         await db.contentPost.update({
           where: { id: postId },
           data: { 
