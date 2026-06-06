@@ -1045,24 +1045,84 @@ export default function Home() {
 
                           {/* Auto-run interval */}
                           {form.agentMode === 'fully-autonomous' && (
-                            <div className="mt-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
-                              <Timer className="w-5 h-5 text-emerald-400 shrink-0" />
-                              <span className="text-sm text-emerald-300">التشغيل التلقائي كل:</span>
-                              <Select value={String(autoInterval)} onValueChange={(v) => setAutoInterval(Number(v))}>
-                                <SelectTrigger className="bg-slate-700/50 border-white/10 text-white w-40">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {AUTONOMOUS_INTERVALS.map(opt => (
-                                    <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              {countdown > 0 && (
-                                <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded">
-                                  التالي: {formatCountdown(countdown)}
-                                </span>
-                              )}
+                            <div className="mt-4 space-y-3">
+                              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
+                                <Timer className="w-5 h-5 text-emerald-400 shrink-0" />
+                                <span className="text-sm text-emerald-300">التشغيل التلقائي كل:</span>
+                                <Select value={String(autoInterval)} onValueChange={(v) => setAutoInterval(Number(v))}>
+                                  <SelectTrigger className="bg-slate-700/50 border-white/10 text-white w-40">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {AUTONOMOUS_INTERVALS.map(opt => (
+                                      <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {countdown > 0 && (
+                                  <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded">
+                                    التالي: {formatCountdown(countdown)}
+                                  </span>
+                                )}
+                              </div>
+                              {/* Visual explanation of auto-run */}
+                              <div className="p-4 rounded-xl bg-slate-800/40 border border-white/5 space-y-3">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <Lightbulb className="w-4 h-4 text-amber-400" />
+                                  <span className="text-sm font-bold text-amber-300">كيف يعمل التشغيل التلقائي؟</span>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  <div className="p-3 rounded-lg bg-violet-500/10 border border-violet-500/20">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <Brain className="w-4 h-4 text-violet-400" />
+                                      <span className="text-xs font-bold text-violet-300">مرحلة التفكير 🧠</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                                      كل <span className="text-violet-300 font-bold">{AUTONOMOUS_INTERVALS.find(i => i.value === autoInterval)?.label}</span>، الوكيل يفكر ويقرر: يولد محتوى، يحلل الأداء، أو ينتظر
+                                    </p>
+                                  </div>
+                                  <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <Send className="w-4 h-4 text-emerald-400" />
+                                      <span className="text-xs font-bold text-emerald-300">مرحلة النشر 📤</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                                      في <span className="text-emerald-300 font-bold">الأوقات المفضلة</span> المحددة في التقويم، الوكيل ينشر المحتوى المجدول على فيسبوك
+                                    </p>
+                                  </div>
+                                </div>
+                                {/* Timeline visual */}
+                                <div className="p-3 rounded-lg bg-slate-700/30 border border-white/5">
+                                  <span className="text-[10px] font-bold text-slate-400 mb-2 block">مثال: تشغيل كل ساعتين + نشر 10م</span>
+                                  <div className="flex items-center gap-1 overflow-x-auto pb-1">
+                                    {[
+                                      { time: '12ص', type: 'think', label: 'يفكر' },
+                                      { time: '2ص', type: 'think', label: 'يفكر' },
+                                      { time: '4ص', type: 'think', label: 'يفكر' },
+                                      { time: '6ص', type: 'think', label: 'يفكر' },
+                                      { time: '8ص', type: 'think', label: 'يفكر' },
+                                      { time: '10م', type: 'publish', label: 'ينشر 🚀' },
+                                      { time: '12م', type: 'think', label: 'يفكر' },
+                                    ].map((item, i) => (
+                                      <div key={i} className="flex items-center shrink-0">
+                                        <div className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg ${
+                                          item.type === 'publish' 
+                                            ? 'bg-emerald-500/20 border border-emerald-500/40' 
+                                            : 'bg-violet-500/10 border border-violet-500/20'
+                                        }`}>
+                                          <span className={`text-[10px] font-bold ${item.type === 'publish' ? 'text-emerald-300' : 'text-violet-300'}`}>
+                                            {item.time}
+                                          </span>
+                                          <span className={`text-[9px] ${item.type === 'publish' ? 'text-emerald-400' : 'text-violet-400'}`}>
+                                            {item.label}
+                                          </span>
+                                        </div>
+                                        {i < 6 && <ChevronLeft className="w-3 h-3 text-slate-600 shrink-0" />}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
                             </div>
                           )}
                         </CardContent>
@@ -1827,6 +1887,195 @@ export default function Home() {
                             <Save className="w-4 h-4 ml-2" />
                             حفظ الجدول
                           </Button>
+                        </CardContent>
+                      </Card>
+
+                      {/* Visual Explanation - How Scheduling Works */}
+                      <Card className="bg-slate-800/30 border-amber-500/20 overflow-hidden">
+                        <div className="h-1 bg-gradient-to-r from-violet-500 via-amber-500 to-emerald-500"></div>
+                        <CardContent className="p-6 space-y-5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shrink-0">
+                              <Lightbulb className="w-5 h-5 text-white" />
+                            </div>
+                            <div>
+                              <h3 className="text-base font-bold">دليل الجدولة الشامل</h3>
+                              <p className="text-slate-400 text-xs">كيف تعمل الإعدادات معاً خطوة بخطوة</p>
+                            </div>
+                          </div>
+
+                          {/* Step 1: Thinking Phase */}
+                          <div className="p-4 rounded-xl bg-violet-500/8 border border-violet-500/15 space-y-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-violet-500/20 flex items-center justify-center">
+                                <Brain className="w-4 h-4 text-violet-400" />
+                              </div>
+                              <span className="text-sm font-bold text-violet-300">خطوة 1: مرحلة التفكير 🧠</span>
+                            </div>
+                            <p className="text-xs text-slate-400 leading-relaxed pr-9">
+                              الوكيل يشتغل تلقائياً كل فترة (حسب إعداد <span className="text-violet-300 font-bold">التشغيل التلقائي كل</span> من لوحة التحكم).
+                              في كل مرة يفكر، بيقرر يعمل إيه: يولد محتوى جديد، يحلل الأداء، أو ينتظر.
+                            </p>
+                            <div className="flex flex-wrap gap-2 pr-9">
+                              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
+                                <PenTool className="w-3 h-3 text-violet-400" />
+                                <span className="text-[10px] text-violet-300">يولد محتوى</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
+                                <ImageLucide className="w-3 h-3 text-violet-400" />
+                                <span className="text-[10px] text-violet-300">يولد صورة</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
+                                <Film className="w-3 h-3 text-violet-400" />
+                                <span className="text-[10px] text-violet-300">يولد فيديو</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
+                                <BarChart3 className="w-3 h-3 text-violet-400" />
+                                <span className="text-[10px] text-violet-300">يحلل الأداء</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Step 2: Scheduling Phase */}
+                          <div className="p-4 rounded-xl bg-amber-500/8 border border-amber-500/15 space-y-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                                <Clock className="w-4 h-4 text-amber-400" />
+                              </div>
+                              <span className="text-sm font-bold text-amber-300">خطوة 2: مرحلة الجدولة ⏰</span>
+                            </div>
+                            <p className="text-xs text-slate-400 leading-relaxed pr-9">
+                              المحتوى اللي الوكيل يولده بيترتب حسب <span className="text-amber-300 font-bold">الأوقات المفضلة</span> اللي انت اخترتها فوق.
+                              كل منشور بيتجدول لأقرب وقت مفضل.
+                            </p>
+                            <div className="flex flex-wrap gap-1.5 pr-9">
+                              {selectedTimes.length > 0 ? selectedTimes.map(t => (
+                                <span key={t} className="px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/30 text-[10px] font-bold text-amber-300">
+                                  {t}
+                                </span>
+                              )) : (
+                                <span className="text-[10px] text-slate-500">لم يتم اختيار أوقات بعد</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Step 3: Publishing Phase */}
+                          <div className="p-4 rounded-xl bg-emerald-500/8 border border-emerald-500/15 space-y-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                                <Send className="w-4 h-4 text-emerald-400" />
+                              </div>
+                              <span className="text-sm font-bold text-emerald-300">خطوة 3: مرحلة النشر 🚀</span>
+                            </div>
+                            <p className="text-xs text-slate-400 leading-relaxed pr-9">
+                              لما يوصل <span className="text-emerald-300 font-bold">وقت النشر المفضل</span>، الوكيل بينشر المنشورات المجدولة تلقائياً على فيسبوك — بس لو <span className="text-emerald-300 font-bold">نشر تلقائي</span> مفعّل.
+                            </p>
+                            <div className="flex flex-wrap gap-2 pr-9">
+                              <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border ${
+                                autoPublish
+                                  ? 'bg-emerald-500/15 border-emerald-500/40'
+                                  : 'bg-slate-700/30 border-white/10'
+                              }`}>
+                                <Send className={`w-3 h-3 ${autoPublish ? 'text-emerald-400' : 'text-slate-500'}`} />
+                                <span className={`text-[10px] font-bold ${autoPublish ? 'text-emerald-300' : 'text-slate-500'}`}>
+                                  نشر تلقائي {autoPublish ? '✓ نشط' : '✗ متوقف'}
+                                </span>
+                              </div>
+                              <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border ${
+                                autoGenerate
+                                  ? 'bg-emerald-500/15 border-emerald-500/40'
+                                  : 'bg-slate-700/30 border-white/10'
+                              }`}>
+                                <Sparkles className={`w-3 h-3 ${autoGenerate ? 'text-emerald-400' : 'text-slate-500'}`} />
+                                <span className={`text-[10px] font-bold ${autoGenerate ? 'text-emerald-300' : 'text-slate-500'}`}>
+                                  توليد تلقائي {autoGenerate ? '✓ نشط' : '✗ متوقف'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Full Day Timeline Example */}
+                          <div className="p-4 rounded-xl bg-slate-700/20 border border-white/5 space-y-3">
+                            <div className="flex items-center gap-2">
+                              <Activity className="w-4 h-4 text-cyan-400" />
+                              <span className="text-xs font-bold text-cyan-300">مثال كامل ليوم واحد</span>
+                              <span className="text-[9px] text-slate-500">(تشغيل كل 4 ساعات + أوقات: {selectedTimes.length > 0 ? selectedTimes.slice(0, 3).join('، ') : '9ص، 1م، 6م'})</span>
+                            </div>
+                            {/* 24-hour visual timeline */}
+                            <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-12 gap-1">
+                              {TIME_OPTIONS.map(time => {
+                                const isSelected = selectedTimes.includes(time);
+                                const isThink = ['12ص','4ص','8ص','12م','4م','8م'].includes(time);
+                                return (
+                                  <div
+                                    key={time}
+                                    className={`flex flex-col items-center gap-0.5 px-1 py-2 rounded-lg border text-center ${
+                                      isSelected
+                                        ? 'bg-emerald-500/20 border-emerald-500/40'
+                                        : isThink
+                                          ? 'bg-violet-500/8 border-violet-500/15'
+                                          : 'bg-slate-700/20 border-white/5'
+                                    }`}
+                                  >
+                                    <span className={`text-[9px] font-bold ${
+                                      isSelected ? 'text-emerald-300' : isThink ? 'text-violet-300' : 'text-slate-600'
+                                    }`}>
+                                      {time}
+                                    </span>
+                                    <span className={`text-[8px] ${
+                                      isSelected ? 'text-emerald-400' : isThink ? 'text-violet-400' : 'text-slate-700'
+                                    }`}>
+                                      {isSelected ? '🚀' : isThink ? '🧠' : '—'}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {/* Legend */}
+                            <div className="flex flex-wrap items-center gap-4 pt-1">
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-4 h-4 rounded bg-violet-500/15 border border-violet-500/20 flex items-center justify-center">
+                                  <span className="text-[8px]">🧠</span>
+                                </div>
+                                <span className="text-[10px] text-slate-400">الوكيل يفكر ويولد محتوى</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-4 h-4 rounded bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
+                                  <span className="text-[8px]">🚀</span>
+                                </div>
+                                <span className="text-[10px] text-slate-400">الوكيل ينشر على فيسبوك</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-4 h-4 rounded bg-slate-700/20 border border-white/5"></div>
+                                <span className="text-[10px] text-slate-400">لا يحدث شيء</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Quick Tips */}
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <div className="p-3 rounded-lg bg-rose-500/8 border border-rose-500/15">
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <Zap className="w-3 h-3 text-rose-400" />
+                                <span className="text-[10px] font-bold text-rose-300">صفحة نشطة</span>
+                              </div>
+                              <p className="text-[9px] text-slate-500">كل ساعتين + 4-5 أوقات نشر</p>
+                            </div>
+                            <div className="p-3 rounded-lg bg-amber-500/8 border border-amber-500/15">
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <Target className="w-3 h-3 text-amber-400" />
+                                <span className="text-[10px] font-bold text-amber-300">صفحة عادية</span>
+                              </div>
+                              <p className="text-[9px] text-slate-500">كل 4 ساعات + 2-3 أوقات نشر</p>
+                            </div>
+                            <div className="p-3 rounded-lg bg-cyan-500/8 border border-cyan-500/15">
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <Shield className="w-3 h-3 text-cyan-400" />
+                                <span className="text-[10px] font-bold text-cyan-300">صفحة جديدة</span>
+                              </div>
+                              <p className="text-[9px] text-slate-500">كل 6 ساعات + 1-2 وقت نشر</p>
+                            </div>
+                          </div>
                         </CardContent>
                       </Card>
 

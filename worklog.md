@@ -336,3 +336,36 @@ Stage Summary:
 - Auto-publish and auto-generate toggles turn GREEN with glow when active
 - "نشط" (active) badge appears with pulse animation on active toggles
 - Much more intuitive UX for time selection compared to text input
+
+---
+Task ID: 9
+Agent: Main Agent
+Task: Add comprehensive visual explanation for scheduling system in Calendar tab and Dashboard
+
+Work Log:
+- Added visual explanation in Dashboard tab (under auto-run interval selector):
+  - "كيف يعمل التشغيل التلقائي؟" section with yellow lightbulb header
+  - Two phase cards: مرحلة التفكير (violet) + مرحلة النشر (emerald)
+  - Dynamic interval label showing current autoInterval selection
+  - Timeline example: 12ص→2ص→4ص→6ص→8ص→10م(🚀)→12م with arrow flow
+  - Think slots in violet, publish slot in green
+- Added comprehensive "دليل الجدولة الشامل" (Comprehensive Scheduling Guide) card in Calendar tab:
+  - Gradient top border (violet→amber→emerald)
+  - Step 1: مرحلة التفكير 🧠 - explains auto-run thinking cycle with action badges (يولد محتوى/صورة/فيديو/يحلل الأداء)
+  - Step 2: مرحلة الجدولة ⏰ - explains preferred times with dynamic selected time chips
+  - Step 3: مرحلة النشر 🚀 - explains publishing with live autoPublish/autoGenerate status indicators
+  - 24-hour timeline grid showing all TIME_OPTIONS with:
+    - 🧠 for thinking times (12ص, 4ص, 8ص, 12م, 4م, 8م)
+    - 🚀 for selected preferred times (dynamic based on user selection)
+    - — for inactive times
+  - Legend explaining icons
+  - 3 quick tip cards: صفحة نشطة (rose), صفحة عادية (amber), صفحة جديدة (cyan) with recommended settings
+- All lint checks pass with zero errors
+- Verified with Agent Browser + VLM: all visual elements render correctly
+
+Stage Summary:
+- Dashboard: Added visual explanation of auto-run with phase cards + timeline example
+- Calendar: Added comprehensive 3-step scheduling guide with interactive 24-hour timeline
+- Timeline dynamically reflects user's selected preferred times
+- Quick tips provide recommended settings for different page types
+- Both explanations use consistent color coding: violet=thinking, amber=scheduling, emerald=publishing
