@@ -204,9 +204,11 @@ ${recentDecisions || 'لا توجد قرارات سابقة'}
 11. أنشئ وصفًا بالإنجليزية لصورة/فيديو مناسب لكل منشور
 12. المحتوى باللغة العربية دائمًا
 13. إذا مرت أكثر من 24 ساعة بدون نشر، يجب إنشاء ونشر محتوى جديد
-14. إذا كانت هناك مسودات متاحة، انشرها قبل إنشاء محتوى جديد
-15. تحقق من المهام المعلقة (صور/فيديو قيد المعالجة) قبل إنشاء وسائط جديدة
-16. نوّع بين الصور والفيديو - لا تعتمد على نوع واحد فقط
+14. **لا تحفظ المنشورات كمسودة أبداً!** - يتم جدولة كل منشور تلقائياً لأقرب وقت نشر مفضل محدد مسبقاً
+15. **توليد الصورة/الفيديو يتم تلقائياً فوراً بعد إنشاء المحتوى** - لا تنتظر خطوة منفصلة
+16. **النشر يتم تلقائياً في الوقت المفضل** - التزم بالجدول المحفوظ في قاعدة البيانات
+17. تحقق من المهام المعلقة (صور/فيديو قيد المعالجة) قبل إنشاء وسائط جديدة
+18. نوّع بين الصور والفيديو - لا تعتمد على نوع واحد فقط
 
 أجب بصيغة JSON فقط:
 {
@@ -286,7 +288,9 @@ ${usedIdeas ? `الأفكار المستخدمة سابقًا (لا تكررها
 11. **أضف textOverlay لكل منشور** - نص قصير جذاب يُكتب على الصورة/الفيديو (3-8 كلمات)
 12. **أضف videoPrompt لكل منشور فيديو** - وصف بالإنجليزية للفيديو المطلوب إنشاؤه
 13. المحتوى الترويجي والعروض يفضل أن يكون بالفيديو
-14. المحتوى التعليمي والقصصي يمكن أن يكون صورة أو فيديو`;
+14. المحتوى التعليمي والقصصي يمكن أن يكون صورة أو فيديو
+15. **لا تترك المنشور كمسودة** - سيتم جدولته تلقائياً لأقرب وقت نشر مفضل
+16. **توليد الصورة/الفيديو يتم فوراً بعد إنشاء المحتوى** - لا تحتاج لطلب منفصل`;
 
   const userPrompt = customPrompt
     ? customPrompt
@@ -342,6 +346,15 @@ ${usedIdeas ? `الأفكار المستخدمة سابقًا (لا تكررها
     };
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // KEY BEHAVIOR: Never save as draft!
+  // After generating content, immediately schedule it to the
+  // nearest preferred time from the schedule config.
+  // This ensures posts are always ready for auto-publishing.
+  // ═══════════════════════════════════════════════════════════
+  const nearestTime = await getNearestScheduledTime(businessId);
+  const postStatus = nearestTime ? 'scheduled' : 'draft'; // Fallback to draft only if no schedule
+
   let lastPostId: string | undefined;
   for (const post of generatedPosts.posts) {
     await db.contentIdea.create({
@@ -365,7 +378,8 @@ ${usedIdeas ? `الأفكار المستخدمة سابقًا (لا تكررها
         contentType: post.contentType || contentType || 'marketing',
         hashtags: Array.isArray(post.hashtags) ? post.hashtags.join(',') : (post.hashtags || ''),
         cta: post.cta || null,
-        status: 'draft',
+        status: postStatus,
+        scheduledAt: nearestTime,
         aiModel: 'claude-opus-4-8',
         generationPrompt: userPrompt,
         imagePrompt: mediaType === 'image' ? (post.imagePrompt || null) : null,
@@ -380,9 +394,13 @@ ${usedIdeas ? `الأفكار المستخدمة سابقًا (لا تكررها
     lastPostId = saved.id;
   }
 
+  const scheduleNote = nearestTime 
+    ? ` ومجدول للنشر في ${nearestTime.toLocaleString('ar-SA', { hour: '2-digit', minute: '2-digit' })}` 
+    : '';
+
   return { 
     success: true, 
-    details: `تم إنشاء ${generatedPosts.posts.length} منشورات بشكل مستقل`,
+    details: `تم إنشاء ${generatedPosts.posts.length} منشورات بشكل مستقل${scheduleNote}`,
     postId: lastPostId,
   };
 }
@@ -475,17 +493,20 @@ async function executePublishPost(businessId: string, parameters: Record<string,
   const postId = parameters.postId as string;
 
   if (!postId) {
-    // Try to find a draft post to publish
-    const draftPost = await db.contentPost.findFirst({
-      where: { businessId, status: 'draft' },
-      orderBy: { createdAt: 'asc' },
+    // Try to find a scheduled or draft post to publish
+    const readyPost = await db.contentPost.findFirst({
+      where: { businessId, status: { in: ['scheduled', 'draft'] } },
+      orderBy: [
+        { status: 'asc' }, // scheduled first, then draft
+        { createdAt: 'asc' },
+      ],
     });
 
-    if (!draftPost) {
-      return { success: false, details: 'No draft posts available to publish' };
+    if (!readyPost) {
+      return { success: false, details: 'No scheduled or draft posts available to publish' };
     }
 
-    return executePublishPostById(draftPost.id);
+    return executePublishPostById(readyPost.id);
   }
 
   return executePublishPostById(postId);
@@ -781,12 +802,12 @@ async function executeSchedulePost(businessId: string, parameters: Record<string
   const scheduledAt = parameters.scheduledAt as string;
 
   if (!postId) {
-    const draftPost = await db.contentPost.findFirst({
-      where: { businessId, status: 'draft' },
+    const unscheduledPost = await db.contentPost.findFirst({
+      where: { businessId, status: { in: ['draft'] } },
       orderBy: { createdAt: 'asc' },
     });
-    if (!draftPost) return { success: false, details: 'No draft posts to schedule' };
-    return executeSchedulePostById(draftPost.id, scheduledAt);
+    if (!unscheduledPost) return { success: false, details: 'No unscheduled posts to schedule' };
+    return executeSchedulePostById(unscheduledPost.id, scheduledAt);
   }
 
   return executeSchedulePostById(postId, scheduledAt);
@@ -929,13 +950,14 @@ export async function runAgentCycle(businessId: string): Promise<AgentRunResult>
 بناءً على كل المعلومات أعلاه، ما الذي يجب أن تفعله الآن كوكيل تسويق مستقل؟
 
 تحليل سريع:
-- هل حان وقت نشر محتوى جديد؟
-- هل هناك مسودات يجب نشرها؟
+- هل حان وقت توليد محتوى جديد للوقت المفضل القادم؟
+- هل هناك منشورات مجدولة يجب نشرها؟ (المنشورات تُجدول تلقائياً لأقرب وقت مفضل)
 - هل هناك وسائط (صور/فيديو) معلقة يجب فحصها؟
 - هل يجب تحليل الأداء؟
 - ما نوع المحتوى الأنسب للوقت الحالي؟
 - ما الزاوية التسويقية الأفضل؟
 - هل يجب إنشاء صورة أم فيديو للمنشور القادم؟
+- تذكر: المنشورات لا تُحفظ كمسودات - تُجدول تلقائياً وتُنشر في الوقت المفضل
 
 اتخذ قرارك وأجب بصيغة JSON فقط:
 {
@@ -1500,4 +1522,89 @@ async function autoPublishAtPreferredTime(businessId: string): Promise<Array<{ s
 
 function safeParse(str: string): unknown {
   try { return JSON.parse(str); } catch { return str; }
+}
+
+/**
+ * Calculates the nearest future preferred time from the schedule config.
+ * Returns an ISO date string for the nearest upcoming preferred time.
+ * If no preferred times are configured, returns null (no scheduling).
+ * 
+ * Example: If current time is 3م and preferred times are [9ص, 6م],
+ * the nearest future time is 6م today → scheduledAt = today at 18:00.
+ * If current time is 8م and preferred times are [9ص, 6م],
+ * the nearest future time is 9ص tomorrow → scheduledAt = tomorrow at 09:00.
+ */
+async function getNearestScheduledTime(businessId: string): Promise<Date | null> {
+  const schedule = await db.scheduleConfig.findFirst({
+    where: { businessId, isActive: true },
+  });
+
+  if (!schedule || !schedule.preferredTimes) {
+    return null;
+  }
+
+  // Parse preferred times
+  let preferredTimesRaw = schedule.preferredTimes || '';
+  try {
+    const parsed = JSON.parse(preferredTimesRaw);
+    if (Array.isArray(parsed)) {
+      preferredTimesRaw = parsed.join(', ');
+    } else if (typeof parsed === 'string') {
+      preferredTimesRaw = parsed;
+    }
+  } catch {
+    // Not JSON, use as-is
+  }
+  const preferredTimes = preferredTimesRaw.split(',').map(t => t.trim()).filter(Boolean);
+
+  if (preferredTimes.length === 0) return null;
+
+  const now = new Date();
+  const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
+
+  // Parse all preferred times into minutes from midnight
+  const preferredMinutes: { totalMinutes: number; label: string }[] = [];
+  for (const timeStr of preferredTimes) {
+    const parsed = parseArabicTime(timeStr);
+    if (parsed) {
+      preferredMinutes.push({
+        totalMinutes: parsed.hour * 60 + parsed.minute,
+        label: timeStr,
+      });
+    }
+  }
+
+  if (preferredMinutes.length === 0) return null;
+
+  // Sort by minutes from midnight
+  preferredMinutes.sort((a, b) => a.totalMinutes - b.totalMinutes);
+
+  // Find the nearest future time
+  let nearestDate: Date | null = null;
+  let smallestDiff = Infinity;
+
+  for (const pref of preferredMinutes) {
+    const diff = pref.totalMinutes - currentTotalMinutes;
+    
+    if (diff > 0) {
+      // This preferred time is still ahead today
+      const candidate = new Date(now);
+      candidate.setHours(Math.floor(pref.totalMinutes / 60), pref.totalMinutes % 60, 0, 0);
+      
+      if (diff < smallestDiff) {
+        smallestDiff = diff;
+        nearestDate = candidate;
+      }
+    }
+  }
+
+  // If no future time today, use the first preferred time tomorrow
+  if (!nearestDate && preferredMinutes.length > 0) {
+    const firstTime = preferredMinutes[0];
+    nearestDate = new Date(now);
+    nearestDate.setDate(nearestDate.getDate() + 1);
+    nearestDate.setHours(Math.floor(firstTime.totalMinutes / 60), firstTime.totalMinutes % 60, 0, 0);
+  }
+
+  return nearestDate;
 }

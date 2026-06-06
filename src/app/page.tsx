@@ -633,7 +633,10 @@ export default function Home() {
       const data = await res.json();
       if (data.posts) {
         await loadPosts();
-        toast({ title: 'تم توليد المحتوى', description: `تم إنشاء ${data.posts.length} منشورات جديدة` });
+        const scheduleInfo = data.scheduledAt 
+          ? ` — مجدول للنشر في ${new Date(data.scheduledAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}`
+          : '';
+        toast({ title: 'تم توليد المحتوى', description: `تم إنشاء ${data.posts.length} منشورات جديدة${scheduleInfo}` });
 
         // Auto-generate media for each post based on mediaType
         for (const post of data.posts) {
