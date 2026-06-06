@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Brain, PenTool, Calendar, BarChart3, MessageSquare, Settings,
@@ -8,7 +8,8 @@ import {
   Lightbulb, Sparkles, CheckCircle2, XCircle, Loader2, Trash2,
   Edit3, Eye, RefreshCw, Play, Pause, ChevronRight, Zap, Globe,
   Palette, BookOpen, Megaphone, Heart, MessageCircle, Share2,
-  Plus, ArrowRight, Save, AlertCircle, Facebook, Instagram, Twitter
+  Plus, ArrowRight, Save, AlertCircle, Facebook, Instagram, Twitter,
+  Download, Image as ImageLucide
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,7 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
 
 // Types
@@ -85,6 +86,14 @@ interface SmartReplyItem {
   createdAt: string;
 }
 
+// Image generation task tracking
+interface ImageGenTask {
+  taskId: string;
+  postId: string;
+  status: 'processing' | 'success' | 'failed';
+  progress: number;
+}
+
 // Tab configuration
 const tabs = [
   { id: 'training', label: 'لوحة التدريب', icon: Brain, color: 'from-emerald-500 to-teal-600' },
@@ -123,8 +132,9 @@ export default function Home() {
   const [generating, setGenerating] = useState(false);
   const [generatedPosts, setGeneratedPosts] = useState<ContentPost[]>([]);
 
-  // Image generation state
-  const [generatingImage, setGeneratingImage] = useState<string | null>(null);
+  // Image generation state - async with polling
+  const [imageTasks, setImageTasks] = useState<Map<string, ImageGenTask>>(new Map());
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   // Publishing state
   const [publishing, setPublishing] = useState<string | null>(null);
@@ -141,6 +151,9 @@ export default function Home() {
     autoPublish: false,
     autoGenerate: false,
   });
+
+  // Image aspect ratio state
+  const [imageAspectRatio, setImageAspectRatio] = useState('1:1');
 
   // Load data
   const loadBusiness = useCallback(async () => {
@@ -199,6 +212,75 @@ export default function Home() {
       console.error('Error loading replies:', error);
     }
   }, [business]);
+
+  // Polling for image generation tasks
+  const pollImageTasks = useCallback(async () => {
+    const pendingTasks = Array.from(imageTasks.entries()).filter(
+      ([, task]) => task.status === 'processing'
+    );
+    
+    if (pendingTasks.length === 0) return;
+
+    for (const [postId, task] of pendingTasks) {
+      try {
+        const res = await fetch(`/api/media/image?taskId=${task.taskId}&postId=${postId}`);
+        const data = await res.json();
+
+        if (data.status === 'SUCCESS') {
+          setImageTasks(prev => {
+            const next = new Map(prev);
+            next.set(postId, { ...task, status: 'success', progress: 100 });
+            return next;
+          });
+          await loadPosts();
+          setGeneratedPosts(prev => prev.map(p => 
+            p.id === postId ? { ...p, imageUrl: data.imageUrl } : p
+          ));
+          toast({ title: 'تم إنشاء الصورة!', description: 'تم إنشاء صورة Grok Imagine بنجاح' });
+        } else if (data.status === 'FAILED') {
+          setImageTasks(prev => {
+            const next = new Map(prev);
+            next.set(postId, { ...task, status: 'failed', progress: 0 });
+            return next;
+          });
+          toast({ title: 'فشل إنشاء الصورة', description: 'حدث خطأ أثناء إنشاء الصورة', variant: 'destructive' });
+        } else {
+          // Still processing - update progress
+          setImageTasks(prev => {
+            const next = new Map(prev);
+            const currentProgress = next.get(postId)?.progress || 0;
+            next.set(postId, { ...task, progress: Math.min(currentProgress + 5, 90) });
+            return next;
+          });
+        }
+      } catch (error) {
+        console.error('Error polling image task:', error);
+      }
+    }
+  }, [imageTasks, loadPosts]);
+
+  // Set up polling interval
+  useEffect(() => {
+    const hasProcessingTasks = Array.from(imageTasks.values()).some(t => t.status === 'processing');
+    
+    if (hasProcessingTasks) {
+      if (!pollingRef.current) {
+        pollingRef.current = setInterval(pollImageTasks, 5000);
+      }
+    } else {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    }
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [imageTasks, pollImageTasks]);
 
   useEffect(() => {
     let cancelled = false;
@@ -278,24 +360,40 @@ export default function Home() {
     setGenerating(false);
   };
 
+  // Async image generation with Grok Imagine
   const handleGenerateImage = async (postId: string, imagePrompt: string) => {
-    setGeneratingImage(postId);
     try {
+      // Create image generation task
       const res = await fetch('/api/media/image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ postId, prompt: imagePrompt }),
+        body: JSON.stringify({ 
+          postId, 
+          prompt: imagePrompt,
+          aspectRatio: imageAspectRatio,
+        }),
       });
       const data = await res.json();
-      if (data.imageBase64) {
-        await loadPosts();
-        setGeneratedPosts(prev => prev.map(p => p.id === postId ? { ...p, imageData: data.imageBase64 } : p));
-        toast({ title: 'تم إنشاء الصورة', description: 'تم إنشاء صورة احترافية للمنشور' });
+
+      if (data.taskId) {
+        // Track the task for polling
+        setImageTasks(prev => {
+          const next = new Map(prev);
+          next.set(postId, {
+            taskId: data.taskId,
+            postId,
+            status: 'processing',
+            progress: 10,
+          });
+          return next;
+        });
+        toast({ title: 'جارٍ إنشاء الصورة', description: 'تم إرسال طلب إنشاء صورة Grok Imagine...' });
+      } else {
+        toast({ title: 'خطأ', description: data.error || 'فشل في إنشاء طلب الصورة', variant: 'destructive' });
       }
     } catch (error) {
       toast({ title: 'خطأ', description: 'فشل في إنشاء الصورة', variant: 'destructive' });
     }
-    setGeneratingImage(null);
   };
 
   const handlePublish = async (postId: string) => {
@@ -393,6 +491,20 @@ export default function Home() {
     engagement: 'تفاعل',
   };
 
+  // Helper to get image display for a post
+  const getPostImage = (post: ContentPost) => {
+    if (post.imageData) {
+      return { type: 'base64' as const, src: `data:image/png;base64,${post.imageData}` };
+    }
+    if (post.imageUrl) {
+      return { type: 'url' as const, src: post.imageUrl };
+    }
+    return null;
+  };
+
+  // Check if post has pending image task
+  const getImageTask = (postId: string) => imageTasks.get(postId);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white flex" dir="rtl">
       {/* Sidebar */}
@@ -436,6 +548,16 @@ export default function Home() {
           ))}
         </nav>
 
+        {/* Active image tasks indicator */}
+        {Array.from(imageTasks.values()).filter(t => t.status === 'processing').length > 0 && (
+          <div className="px-3 py-2 border-t border-white/10">
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-violet-500/10 text-violet-400">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              {!sidebarCollapsed && <span className="text-xs">إنشاء صورة...</span>}
+            </div>
+          </div>
+        )}
+
         {/* Collapse button */}
         <button
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -446,7 +568,7 @@ export default function Home() {
       </motion.aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto flex flex-col min-h-screen">
         {/* Header */}
         <header className="sticky top-0 z-40 bg-slate-900/60 backdrop-blur-xl border-b border-white/10 px-6 py-4">
           <div className="flex items-center justify-between">
@@ -459,6 +581,13 @@ export default function Home() {
               </p>
             </div>
             <div className="flex items-center gap-3">
+              {/* Active tasks badges */}
+              {Array.from(imageTasks.values()).filter(t => t.status === 'processing').length > 0 && (
+                <Badge className="bg-violet-500/20 text-violet-400 border-violet-500/30 animate-pulse">
+                  <Loader2 className="w-3 h-3 ml-1 animate-spin" />
+                  إنشاء صورة
+                </Badge>
+              )}
               {business && (
                 <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
                   <CheckCircle2 className="w-3 h-3 ml-1" />
@@ -473,7 +602,7 @@ export default function Home() {
           </div>
         </header>
 
-        <div className="p-6">
+        <div className="flex-1 p-6">
           <AnimatePresence mode="wait">
             {/* ============ TRAINING TAB ============ */}
             {activeTab === 'training' && (
@@ -720,7 +849,7 @@ export default function Home() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                           <div>
                             <label className="text-sm text-slate-400 mb-1 block">نوع المحتوى</label>
                             <Select value={genContentType} onValueChange={setGenContentType}>
@@ -746,6 +875,21 @@ export default function Home() {
                               className="bg-slate-700/50 border-white/10 text-white placeholder:text-slate-500"
                             />
                           </div>
+                          <div>
+                            <label className="text-sm text-slate-400 mb-1 block">نسبة أبعاد الصورة</label>
+                            <Select value={imageAspectRatio} onValueChange={setImageAspectRatio}>
+                              <SelectTrigger className="bg-slate-700/50 border-white/10 text-white">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="1:1">مربع (1:1)</SelectItem>
+                                <SelectItem value="16:9">عريض (16:9)</SelectItem>
+                                <SelectItem value="9:16">طويل (9:16)</SelectItem>
+                                <SelectItem value="3:2">أفقي (3:2)</SelectItem>
+                                <SelectItem value="2:3">عمودي (2:3)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
 
                         <Button
@@ -766,100 +910,127 @@ export default function Home() {
                           <Lightbulb className="w-5 h-5 text-amber-400" />
                           المنشورات المولدة حديثًا
                         </h3>
-                        {generatedPosts.map((post) => (
-                          <Card key={post.id} className="bg-slate-800/50 border-white/10 overflow-hidden">
-                            <CardContent className="p-0">
-                              <div className="flex flex-col md:flex-row">
-                                {/* Image Section */}
-                                <div className="md:w-1/3 bg-slate-700/30 flex items-center justify-center min-h-[200px] relative">
-                                  {post.imageData ? (
-                                    <img
-                                      src={`data:image/png;base64,${post.imageData}`}
-                                      alt="صورة المنشور المولدة"
-                                      className="w-full h-full object-cover"
-                                    />
-                                  ) : (
-                                    <div className="text-center p-4">
-                                      <ImageIcon className="w-10 h-10 text-slate-500 mx-auto mb-2" />
-                                      <p className="text-xs text-slate-500 mb-3">لا توجد صورة بعد</p>
+                        {generatedPosts.map((post) => {
+                          const img = getPostImage(post);
+                          const imgTask = getImageTask(post.id);
+                          
+                          return (
+                            <Card key={post.id} className="bg-slate-800/50 border-white/10 overflow-hidden">
+                              <CardContent className="p-0">
+                                <div className="flex flex-col md:flex-row">
+                                  {/* Image Section */}
+                                  <div className="md:w-1/3 bg-slate-700/30 flex items-center justify-center min-h-[200px] relative">
+                                    {imgTask?.status === 'processing' ? (
+                                      <div className="text-center p-4 w-full">
+                                        <div className="w-12 h-12 rounded-full bg-violet-500/20 flex items-center justify-center mx-auto mb-3">
+                                          <Loader2 className="w-6 h-6 text-violet-400 animate-spin" />
+                                        </div>
+                                        <p className="text-xs text-violet-400 font-medium mb-2">Grok Imagine يعمل...</p>
+                                        <Progress value={imgTask.progress} className="h-1.5 bg-slate-700" />
+                                        <p className="text-[10px] text-slate-500 mt-2">قد يستغرق 30-60 ثانية</p>
+                                      </div>
+                                    ) : img ? (
+                                      <img
+                                        src={img.src}
+                                        alt="صورة المنشور المولدة"
+                                        className="w-full h-full object-cover"
+                                        crossOrigin="anonymous"
+                                      />
+                                    ) : imgTask?.status === 'failed' ? (
+                                      <div className="text-center p-4">
+                                        <XCircle className="w-10 h-10 text-red-400 mx-auto mb-2" />
+                                        <p className="text-xs text-red-400 mb-3">فشل إنشاء الصورة</p>
+                                        <Button
+                                          size="sm"
+                                          onClick={() => handleGenerateImage(post.id, post.imagePrompt || `Professional social media post for ${business.companyName}, modern design, high quality`)}
+                                          className="bg-violet-500 hover:bg-violet-600 text-xs"
+                                        >
+                                          <RefreshCw className="w-3 h-3 ml-1" />
+                                          إعادة المحاولة
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <div className="text-center p-4">
+                                        <ImageIcon className="w-10 h-10 text-slate-500 mx-auto mb-2" />
+                                        <p className="text-xs text-slate-500 mb-3">لا توجد صورة بعد</p>
+                                        <Button
+                                          size="sm"
+                                          onClick={() => handleGenerateImage(post.id, post.imagePrompt || `Professional social media post for ${business.companyName}, modern design, high quality`)}
+                                          className="bg-violet-500 hover:bg-violet-600 text-xs"
+                                        >
+                                          <ImageIcon className="w-3 h-3 ml-1" />
+                                          إنشاء صورة (Grok)
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {/* Content Section */}
+                                  <div className="flex-1 p-5 space-y-3">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <Badge className={`${statusColors[post.status]} text-white`}>
+                                        {statusLabels[post.status]}
+                                      </Badge>
+                                      <Badge variant="outline" className="border-white/20 text-slate-300">
+                                        {contentTypeLabels[post.contentType] || post.contentType}
+                                      </Badge>
+                                      {post.title && <span className="text-sm font-medium text-slate-300">{post.title}</span>}
+                                    </div>
+                                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{post.content}</p>
+                                    {post.hashtags && (
+                                      <div className="flex flex-wrap gap-1">
+                                        {post.hashtags.split(',').map((tag, i) => (
+                                          <span key={i} className="text-xs text-teal-400">#{tag.trim().replace('#', '')}</span>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {post.cta && (
+                                      <p className="text-sm text-amber-400 font-medium">👉 {post.cta}</p>
+                                    )}
+                                    <div className="flex items-center gap-2 pt-2">
                                       <Button
                                         size="sm"
-                                        onClick={() => handleGenerateImage(post.id, post.imagePrompt || `Professional social media post for ${business.companyName}, modern design, high quality`)}
-                                        disabled={generatingImage === post.id}
-                                        className="bg-violet-500 hover:bg-violet-600 text-xs"
+                                        onClick={() => handlePublish(post.id)}
+                                        disabled={publishing === post.id}
+                                        className="bg-emerald-500 hover:bg-emerald-600"
                                       >
-                                        {generatingImage === post.id ? <Loader2 className="w-3 h-3 animate-spin ml-1" /> : <ImageIcon className="w-3 h-3 ml-1" />}
-                                        إنشاء صورة
+                                        {publishing === post.id ? <Loader2 className="w-3 h-3 animate-spin ml-1" /> : <Send className="w-3 h-3 ml-1" />}
+                                        نشر الآن
+                                      </Button>
+                                      <Dialog>
+                                        <DialogTrigger asChild>
+                                          <Button size="sm" variant="outline" className="border-white/20 text-white hover:bg-white/10">
+                                            <Clock className="w-3 h-3 ml-1" />
+                                            جدولة
+                                          </Button>
+                                        </DialogTrigger>
+                                        <DialogContent className="bg-slate-800 border-white/10">
+                                          <DialogHeader>
+                                            <DialogTitle>جدولة المنشور</DialogTitle>
+                                          </DialogHeader>
+                                          <Input
+                                            type="datetime-local"
+                                            onChange={(e) => {
+                                              if (e.target.value) handleSchedulePost(post.id, e.target.value);
+                                            }}
+                                            className="bg-slate-700 border-white/10 text-white"
+                                          />
+                                        </DialogContent>
+                                      </Dialog>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleDeletePost(post.id)}
+                                        className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
                                       </Button>
                                     </div>
-                                  )}
-                                </div>
-                                {/* Content Section */}
-                                <div className="flex-1 p-5 space-y-3">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <Badge className={`${statusColors[post.status]} text-white`}>
-                                      {statusLabels[post.status]}
-                                    </Badge>
-                                    <Badge variant="outline" className="border-white/20 text-slate-300">
-                                      {contentTypeLabels[post.contentType] || post.contentType}
-                                    </Badge>
-                                    {post.title && <span className="text-sm font-medium text-slate-300">{post.title}</span>}
-                                  </div>
-                                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{post.content}</p>
-                                  {post.hashtags && (
-                                    <div className="flex flex-wrap gap-1">
-                                      {post.hashtags.split(',').map((tag, i) => (
-                                        <span key={i} className="text-xs text-teal-400">#{tag.trim().replace('#', '')}</span>
-                                      ))}
-                                    </div>
-                                  )}
-                                  {post.cta && (
-                                    <p className="text-sm text-amber-400 font-medium">👉 {post.cta}</p>
-                                  )}
-                                  <div className="flex items-center gap-2 pt-2">
-                                    <Button
-                                      size="sm"
-                                      onClick={() => handlePublish(post.id)}
-                                      disabled={publishing === post.id}
-                                      className="bg-emerald-500 hover:bg-emerald-600"
-                                    >
-                                      {publishing === post.id ? <Loader2 className="w-3 h-3 animate-spin ml-1" /> : <Send className="w-3 h-3 ml-1" />}
-                                      نشر الآن
-                                    </Button>
-                                    <Dialog>
-                                      <DialogTrigger asChild>
-                                        <Button size="sm" variant="outline" className="border-white/20 text-white hover:bg-white/10">
-                                          <Clock className="w-3 h-3 ml-1" />
-                                          جدولة
-                                        </Button>
-                                      </DialogTrigger>
-                                      <DialogContent className="bg-slate-800 border-white/10">
-                                        <DialogHeader>
-                                          <DialogTitle>جدولة المنشور</DialogTitle>
-                                        </DialogHeader>
-                                        <Input
-                                          type="datetime-local"
-                                          onChange={(e) => {
-                                            if (e.target.value) handleSchedulePost(post.id, e.target.value);
-                                          }}
-                                          className="bg-slate-700 border-white/10 text-white"
-                                        />
-                                      </DialogContent>
-                                    </Dialog>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => handleDeletePost(post.id)}
-                                      className="border-red-500/30 text-red-400 hover:bg-red-500/10"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </Button>
                                   </div>
                                 </div>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        ))}
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
                       </div>
                     )}
 
@@ -872,58 +1043,75 @@ export default function Home() {
                       </h3>
                       <ScrollArea className="max-h-[600px]">
                         <div className="space-y-3">
-                          {posts.filter(p => !generatedPosts.find(gp => gp.id === p.id)).map((post) => (
-                            <Card key={post.id} className="bg-slate-800/30 border-white/5 hover:border-white/20 transition-colors">
-                              <CardContent className="p-4">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 mb-2">
-                                      <Badge className={`${statusColors[post.status]} text-white text-[10px]`}>
-                                        {statusLabels[post.status]}
-                                      </Badge>
-                                      <Badge variant="outline" className="border-white/20 text-slate-400 text-[10px]">
-                                        {contentTypeLabels[post.contentType] || post.contentType}
-                                      </Badge>
-                                    </div>
-                                    <p className="text-sm text-slate-300 line-clamp-2">{post.content}</p>
-                                    {post.hashtags && (
-                                      <div className="flex flex-wrap gap-1 mt-1">
-                                        {post.hashtags.split(',').slice(0, 5).map((tag, i) => (
-                                          <span key={i} className="text-[10px] text-teal-400">#{tag.trim().replace('#', '')}</span>
-                                        ))}
+                          {posts.filter(p => !generatedPosts.find(gp => gp.id === p.id)).map((post) => {
+                            const img = getPostImage(post);
+                            const imgTask = getImageTask(post.id);
+                            
+                            return (
+                              <Card key={post.id} className="bg-slate-800/30 border-white/5 hover:border-white/20 transition-colors">
+                                <CardContent className="p-4">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <Badge className={`${statusColors[post.status]} text-white text-[10px]`}>
+                                          {statusLabels[post.status]}
+                                        </Badge>
+                                        <Badge variant="outline" className="border-white/20 text-slate-400 text-[10px]">
+                                          {contentTypeLabels[post.contentType] || post.contentType}
+                                        </Badge>
                                       </div>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    {post.status === 'draft' && (
-                                      <>
-                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
-                                          onClick={() => handlePublish(post.id)} disabled={publishing === post.id}>
-                                          {publishing === post.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                                        </Button>
-                                        {!post.imageData && (
-                                          <Button size="icon" variant="ghost" className="h-8 w-8 text-violet-400 hover:text-violet-300 hover:bg-violet-500/10"
-                                            onClick={() => handleGenerateImage(post.id, `Professional social media post for ${business?.companyName}, modern design`)}
-                                            disabled={generatingImage === post.id}>
-                                            {generatingImage === post.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
+                                      <p className="text-sm text-slate-300 line-clamp-2">{post.content}</p>
+                                      {post.hashtags && (
+                                        <div className="flex flex-wrap gap-1 mt-1">
+                                          {post.hashtags.split(',').slice(0, 5).map((tag, i) => (
+                                            <span key={i} className="text-[10px] text-teal-400">#{tag.trim().replace('#', '')}</span>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      {post.status === 'draft' && (
+                                        <>
+                                          <Button size="icon" variant="ghost" className="h-8 w-8 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+                                            onClick={() => handlePublish(post.id)} disabled={publishing === post.id}>
+                                            {publishing === post.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                                           </Button>
-                                        )}
-                                      </>
-                                    )}
-                                    <Button size="icon" variant="ghost" className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                                      onClick={() => handleDeletePost(post.id)}>
-                                      <Trash2 className="w-4 h-4" />
-                                    </Button>
+                                          {!img && !imgTask && (
+                                            <Button size="icon" variant="ghost" className="h-8 w-8 text-violet-400 hover:text-violet-300 hover:bg-violet-500/10"
+                                              onClick={() => handleGenerateImage(post.id, `Professional social media post for ${business?.companyName}, modern design`)}
+                                              >
+                                              <ImageIcon className="w-4 h-4" />
+                                            </Button>
+                                          )}
+                                          {imgTask?.status === 'processing' && (
+                                            <div className="h-8 w-8 flex items-center justify-center">
+                                              <Loader2 className="w-4 h-4 text-violet-400 animate-spin" />
+                                            </div>
+                                          )}
+                                        </>
+                                      )}
+                                      <Button size="icon" variant="ghost" className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                                        onClick={() => handleDeletePost(post.id)}>
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
+                                    </div>
                                   </div>
-                                </div>
-                                {post.imageData && (
-                                  <div className="mt-3 rounded-lg overflow-hidden max-h-32">
-                                    <img src={`data:image/png;base64,${post.imageData}`} alt="صورة المنشور" className="w-full h-full object-cover" />
-                                  </div>
-                                )}
-                              </CardContent>
-                            </Card>
-                          ))}
+                                  {img && (
+                                    <div className="mt-3 rounded-lg overflow-hidden max-h-32">
+                                      <img src={img.src} alt="صورة المنشور" className="w-full h-full object-cover" crossOrigin="anonymous" />
+                                    </div>
+                                  )}
+                                  {imgTask?.status === 'processing' && (
+                                    <div className="mt-3 p-2 rounded-lg bg-violet-500/10 flex items-center gap-2">
+                                      <Loader2 className="w-3.5 h-3.5 text-violet-400 animate-spin" />
+                                      <span className="text-xs text-violet-400">جارٍ إنشاء الصورة...</span>
+                                      <Progress value={imgTask.progress} className="flex-1 h-1 bg-slate-700" />
+                                    </div>
+                                  )}
+                                </CardContent>
+                              </Card>
+                            );
+                          })}
                           {posts.length === 0 && (
                             <div className="text-center py-12 text-slate-500">
                               <PenTool className="w-10 h-10 mx-auto mb-3" />
@@ -990,7 +1178,7 @@ export default function Home() {
                   <CardContent>
                     <ScrollArea className="max-h-96">
                       <div className="space-y-3">
-                        {posts.filter(p => p.status === 'scheduled' || p.status === 'published').map((post, idx) => (
+                        {posts.filter(p => p.status === 'scheduled' || p.status === 'published').map((post) => (
                           <div key={post.id} className="flex items-start gap-3 p-3 rounded-lg bg-slate-700/30 hover:bg-slate-700/50 transition-colors">
                             <div className={`w-3 h-3 rounded-full mt-1.5 shrink-0 ${post.status === 'published' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
                             <div className="flex-1 min-w-0">
@@ -1291,21 +1479,21 @@ export default function Home() {
                         <p className="font-medium text-sm">توليد المحتوى</p>
                         <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">نشط</Badge>
                       </div>
-                      <p className="text-xs text-slate-400">نموذج لغوي متقدم - توليد نصوص تسويقية احترافية</p>
+                      <p className="text-xs text-slate-400">نموذج لغوي متقدم (Claude/Z.ai) - توليد نصوص تسويقية احترافية</p>
                     </div>
                     <div className="p-3 rounded-lg bg-slate-700/30">
                       <div className="flex items-center justify-between mb-1">
                         <p className="font-medium text-sm">توليد الصور</p>
                         <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">نشط</Badge>
                       </div>
-                      <p className="text-xs text-slate-400">نموذج توليد صور احترافية للمنشورات</p>
+                      <p className="text-xs text-slate-400">Grok Imagine (عبر Kie.ai) - توليد صور احترافية غير متزامن</p>
                     </div>
                     <div className="p-3 rounded-lg bg-slate-700/30">
                       <div className="flex items-center justify-between mb-1">
                         <p className="font-medium text-sm">توليد الفيديو</p>
                         <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">نشط</Badge>
                       </div>
-                      <p className="text-xs text-slate-400">نموذج توليد فيديوهات قصيرة (غير متزامن)</p>
+                      <p className="text-xs text-slate-400">نماذج فيديو Kie.ai - توليد فيديوهات قصيرة (غير متزامن)</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -1345,7 +1533,7 @@ export default function Home() {
         <footer className="mt-auto border-t border-white/10 bg-slate-900/60 backdrop-blur-xl px-6 py-4">
           <div className="flex items-center justify-between text-sm text-slate-500">
             <p>وكيل التسويق الذكي - AI Marketing Agent</p>
-            <p>مدعوم بالذكاء الاصطناعي</p>
+            <p>مدعوم بالذكاء الاصطناعي | Grok Imagine + Kie.ai</p>
           </div>
         </footer>
       </main>
