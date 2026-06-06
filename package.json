@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000 2>&1 | tee dev.log",
+    "dev": "DATABASE_URL=$(grep DATABASE_URL .env | head -1 | cut -d= -f2-) DIRECT_URL=$(grep DIRECT_URL .env | head -1 | cut -d= -f2-) next dev -p 3000 2>&1 | tee dev.log",
     "build": "prisma generate && next build",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
