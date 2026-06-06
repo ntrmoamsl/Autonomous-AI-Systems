@@ -11,7 +11,7 @@ import {
   Plus, ArrowRight, Save, AlertCircle, Facebook, Activity,
   Bot, Timer, Shield, Cpu, Image as ImageLucide, ChevronLeft,
   ExternalLink, Copy, ThumbsUp, Eye as EyeIcon, Repeat2,
-  CircleDot, Wifi, WifiOff, Crown, Flame, Layers
+  CircleDot, Wifi, WifiOff, Crown, Flame, Layers, Video, Film
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -75,6 +75,9 @@ interface ContentPost {
   commentCount?: number | null;
   shareCount?: number | null;
   imagePrompt?: string | null;
+  mediaType?: string;         // "image" or "video"
+  textOverlay?: string | null; // Short text on the image/video
+  videoPrompt?: string | null; // Prompt for video generation
   decisionReason?: string | null;
   isAutonomous: boolean;
   createdAt: string;
@@ -173,6 +176,7 @@ const STATUS_COLORS: Record<string, string> = {
 const ACTION_LABELS: Record<string, string> = {
   generate_content: 'توليد محتوى',
   generate_image: 'توليد صورة',
+  generate_video: 'توليد فيديو',
   publish_post: 'نشر منشور',
   analyze_performance: 'تحليل الأداء',
   reply_comments: 'رد على تعليقات',
@@ -392,7 +396,12 @@ export default function Home() {
 
     for (const [postId, task] of pendingTasks) {
       try {
-        const res = await fetch(`/api/media/image?taskId=${task.taskId}&postId=${postId}`);
+        // Find the post to determine if it's a video or image task
+        const post = posts.find(p => p.id === postId);
+        const isVideoTask = post?.mediaType === 'video';
+        const apiEndpoint = isVideoTask ? '/api/media/video' : '/api/media/image';
+
+        const res = await fetch(`${apiEndpoint}?taskId=${task.taskId}&postId=${postId}`);
         const data = await res.json();
         if (data.status === 'SUCCESS') {
           setImageTasks(prev => {
@@ -401,14 +410,14 @@ export default function Home() {
             return next;
           });
           await loadPosts();
-          toast({ title: 'تم إنشاء الصورة!', description: 'تم إنشاء الصورة بنجاح' });
+          toast({ title: isVideoTask ? 'تم إنشاء الفيديو!' : 'تم إنشاء الصورة!', description: isVideoTask ? 'تم إنشاء الفيديو بنجاح' : 'تم إنشاء الصورة بنجاح' });
         } else if (data.status === 'FAILED') {
           setImageTasks(prev => {
             const next = new Map(prev);
             next.set(postId, { ...task, status: 'failed', progress: 0 });
             return next;
           });
-          toast({ title: 'فشل إنشاء الصورة', description: 'حدث خطأ أثناء إنشاء الصورة', variant: 'destructive' });
+          toast({ title: isVideoTask ? 'فشل إنشاء الفيديو' : 'فشل إنشاء الصورة', description: isVideoTask ? 'حدث خطأ أثناء إنشاء الفيديو' : 'حدث خطأ أثناء إنشاء الصورة', variant: 'destructive' });
         } else {
           setImageTasks(prev => {
             const next = new Map(prev);
@@ -418,10 +427,10 @@ export default function Home() {
           });
         }
       } catch (error) {
-        console.error('Error polling image task:', error);
+        console.error('Error polling media task:', error);
       }
     }
-  }, [imageTasks, loadPosts]);
+  }, [imageTasks, loadPosts, posts]);
 
   useEffect(() => {
     const hasProcessingTasks = Array.from(imageTasks.values()).some(t => t.status === 'processing');
@@ -518,6 +527,18 @@ export default function Home() {
       if (data.posts) {
         await loadPosts();
         toast({ title: 'تم توليد المحتوى', description: `تم إنشاء ${data.posts.length} منشورات جديدة` });
+
+        // Auto-generate media for each post based on mediaType
+        for (const post of data.posts) {
+          if (post.mediaType === 'video' && post.videoPrompt) {
+            handleGenerateVideo(post.id, post.videoPrompt, post.textOverlay || undefined);
+          } else if (post.mediaType === 'image' && post.imagePrompt) {
+            handleGenerateImage(post.id, post.imagePrompt);
+          } else if (!post.mediaType && post.imagePrompt) {
+            // Default: generate image if no mediaType specified but imagePrompt exists
+            handleGenerateImage(post.id, post.imagePrompt);
+          }
+        }
       }
     } catch (error) {
       toast({ title: 'خطأ', description: 'فشل في توليد المحتوى', variant: 'destructive' });
@@ -550,6 +571,33 @@ export default function Home() {
       }
     } catch (error) {
       toast({ title: 'خطأ', description: 'فشل في إنشاء الصورة', variant: 'destructive' });
+    }
+  };
+
+  const handleGenerateVideo = async (postId: string, videoPrompt: string, textOverlay?: string) => {
+    try {
+      const res = await fetch('/api/media/video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          postId,
+          prompt: videoPrompt,
+          textOverlay: textOverlay || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.taskId) {
+        setImageTasks(prev => {
+          const next = new Map(prev);
+          next.set(postId, { taskId: data.taskId, postId, status: 'processing', progress: 10 });
+          return next;
+        });
+        toast({ title: 'جارٍ إنشاء الفيديو', description: 'تم إرسال طلب إنشاء فيديو...' });
+      } else {
+        toast({ title: 'خطأ', description: data.error || 'فشل في إنشاء طلب الفيديو', variant: 'destructive' });
+      }
+    } catch (error) {
+      toast({ title: 'خطأ', description: 'فشل في إنشاء الفيديو', variant: 'destructive' });
     }
   };
 
@@ -1108,6 +1156,21 @@ export default function Home() {
                               <span className="text-sm text-slate-400">نموذج الصور</span>
                               <span className="text-xs font-mono text-violet-400">{form.imageModel === 'gpt-image-2' ? 'GPT Image-2' : 'Grok Imagine'}</span>
                             </div>
+                            <Separator className="bg-white/5" />
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-slate-400">توزيع الوسائط</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-cyan-400 flex items-center gap-1">
+                                  <ImageIcon className="w-3 h-3" />
+                                  {posts.filter(p => p.mediaType !== 'video').length}
+                                </span>
+                                <span className="text-xs text-slate-600">/</span>
+                                <span className="text-xs text-rose-400 flex items-center gap-1">
+                                  <Video className="w-3 h-3" />
+                                  {posts.filter(p => p.mediaType === 'video').length}
+                                </span>
+                              </div>
+                            </div>
                           </CardContent>
                         </Card>
 
@@ -1526,18 +1589,29 @@ export default function Home() {
                         {filteredPosts.map(post => {
                           const postImage = getPostImage(post);
                           const imageTask = imageTasks.get(post.id);
+                          const isVideo = post.mediaType === 'video';
                           return (
                             <Card key={post.id} className="bg-slate-800/50 border-white/10 hover:border-white/20 transition-colors overflow-hidden">
-                              {/* Image */}
-                              {postImage && (
+                              {/* Media Preview */}
+                              {postImage && !isVideo && (
                                 <div className="aspect-video bg-slate-700/30 relative overflow-hidden">
                                   <img src={postImage.src} alt={post.title || 'Post image'} className="w-full h-full object-cover" />
+                                </div>
+                              )}
+                              {post.videoUrl && isVideo && (
+                                <div className="aspect-video bg-slate-700/30 relative overflow-hidden">
+                                  <video src={post.videoUrl} controls className="w-full h-full object-cover" />
+                                </div>
+                              )}
+                              {!postImage && !post.videoUrl && isVideo && (
+                                <div className="aspect-video bg-slate-700/30 relative overflow-hidden flex items-center justify-center">
+                                  <Film className="w-12 h-12 text-slate-600" />
                                 </div>
                               )}
                               {imageTask?.status === 'processing' && (
                                 <div className="p-2">
                                   <Progress value={imageTask.progress} className="h-1.5 bg-slate-700/50" />
-                                  <p className="text-[10px] text-violet-400 mt-1 text-center">جارٍ إنشاء الصورة...</p>
+                                  <p className="text-[10px] text-violet-400 mt-1 text-center">{isVideo ? 'جارٍ إنشاء الفيديو...' : 'جارٍ إنشاء الصورة...'}</p>
                                 </div>
                               )}
                               <CardContent className="p-4">
@@ -1548,6 +1622,15 @@ export default function Home() {
                                   <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-white/10 text-slate-400">
                                     {CONTENT_TYPE_LABELS[post.contentType] || post.contentType}
                                   </Badge>
+                                  <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${isVideo ? 'border-rose-500/30 text-rose-400' : 'border-cyan-500/30 text-cyan-400'}`}>
+                                    {isVideo ? <Video className="w-2.5 h-2.5 ml-0.5" /> : <ImageIcon className="w-2.5 h-2.5 ml-0.5" />}
+                                    {isVideo ? 'فيديو' : 'صورة'}
+                                  </Badge>
+                                  {post.textOverlay && (
+                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/30 text-amber-400 line-clamp-1 max-w-[120px]">
+                                      {post.textOverlay}
+                                    </Badge>
+                                  )}
                                   {post.isAutonomous && (
                                     <Badge className="text-[10px] px-1.5 py-0 bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
                                       <Bot className="w-2.5 h-2.5 ml-0.5" />مستقل
@@ -1568,7 +1651,12 @@ export default function Home() {
                                       <Button size="sm" variant="ghost" onClick={() => setScheduleDialogPost(post.id)} className="h-7 px-2 text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10">
                                         <Clock className="w-3 h-3" />
                                       </Button>
-                                      {post.imagePrompt && !postImage && !imageTask && (
+                                      {isVideo && post.videoPrompt && !post.videoUrl && !imageTask && (
+                                        <Button size="sm" variant="ghost" onClick={() => handleGenerateVideo(post.id, post.videoPrompt!, post.textOverlay || undefined)} className="h-7 px-2 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10">
+                                          <Video className="w-3 h-3" />
+                                        </Button>
+                                      )}
+                                      {!isVideo && post.imagePrompt && !postImage && !imageTask && (
                                         <Button size="sm" variant="ghost" onClick={() => handleGenerateImage(post.id, post.imagePrompt!)} className="h-7 px-2 text-xs text-violet-400 hover:text-violet-300 hover:bg-violet-500/10">
                                           <ImageIcon className="w-3 h-3" />
                                         </Button>

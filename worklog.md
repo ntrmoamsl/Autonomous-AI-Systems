@@ -221,3 +221,31 @@ Stage Summary:
 - Strict deduplication prevents content repetition
 - Three agent modes: Manual (user controls), Semi-Auto (agent generates, user approves), Fully Autonomous (agent does everything)
 - Complete decision audit trail in AgentLog database
+
+---
+Task ID: 6
+Agent: Main Agent
+Task: Add image/video media type decision + text overlay on images/videos for autonomous agent
+
+Work Log:
+- Updated Prisma schema: Added mediaType (image/video), textOverlay, videoPrompt fields to ContentPost
+- Created /src/lib/text-overlay.ts: Sharp-based text overlay utility for images + video prompt text embedding
+- Rewrote /src/lib/agent.ts: Agent now decides image vs video per post, generates text overlay, auto-generates media
+- Updated /src/app/api/content/generate/route.ts: Every post includes mediaType, textOverlay, videoPrompt
+- Updated /src/app/api/publish/route.ts: Handles both image and video posts, applies text overlay before publishing
+- Updated /src/app/api/media/image/route.ts: Applies text overlay when image is ready via Sharp
+- Updated /src/app/api/media/video/route.ts: Embeds text overlay in video prompt for generation
+- Updated /src/app/api/content/route.ts: Truncates large imageData to prevent memory issues in list view
+- Created /src/app/api/content/image/route.ts: Separate endpoint for fetching individual post imageData
+- Updated /src/app/page.tsx: Added mediaType badge, video support, textOverlay display, auto-generate media, video polling
+- All lint checks pass with zero errors
+- API tested and verified: content API returns new fields correctly
+
+Stage Summary:
+- Every post MUST have media (image or video) - agent decides which based on content strategy
+- Text overlay is written ON the image using Sharp (semi-transparent bar at bottom)
+- For videos, text overlay is embedded in the video generation prompt
+- Agent automatically varies between image and video posts based on recent distribution
+- Both image and video generation are fully enabled - agent makes the choice
+- Content generation prompt now includes mediaType, textOverlay, videoPrompt in JSON schema
+- Database schema includes all new fields (mediaType, textOverlay, videoPrompt)

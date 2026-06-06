@@ -5,12 +5,15 @@
  * It uses Claude Opus 4.8 with function calling to make independent
  * marketing decisions: what to post, when, why, and how.
  * 
- * After initial training, it operates without human intervention.
+ * Key feature: Every post MUST have media (image or video).
+ * The agent decides which media type based on content strategy.
+ * Text overlay is written ON the image/video.
  */
 
 import { db } from '@/lib/db';
-import { callClaudeOpus, createImageTask, getKieTaskDetail } from '@/lib/ai';
+import { callClaudeOpus, createImageTask, getKieTaskDetail, callKieAI } from '@/lib/ai';
 import { getFacebookConfig } from '@/lib/config';
+import { addTextOverlayToBase64, addTextOverlayFromUrl, createVideoPromptWithText } from '@/lib/text-overlay';
 
 // ============================================================
 // Types
@@ -19,6 +22,7 @@ import { getFacebookConfig } from '@/lib/config';
 export type AgentAction = 
   | 'generate_content'
   | 'generate_image'
+  | 'generate_video'
   | 'publish_post'
   | 'analyze_performance'
   | 'reply_comments'
@@ -95,6 +99,13 @@ async function buildAgentContext(businessId: string): Promise<string> {
     typeDistribution[p.contentType] = (typeDistribution[p.contentType] || 0) + 1;
   });
 
+  // Media type distribution (image vs video)
+  const mediaDistribution: Record<string, number> = { image: 0, video: 0 };
+  publishedPosts.forEach(p => {
+    const mt = p.mediaType || 'image';
+    mediaDistribution[mt] = (mediaDistribution[mt] || 0) + 1;
+  });
+
   // Performance analysis
   const bestPerformingType = Object.entries(typeDistribution)
     .sort(([, a], [, b]) => b - a)[0]?.[0] || 'marketing';
@@ -162,6 +173,7 @@ ${business.additionalInfo ? `معلومات إضافية: ${business.additionalI
 فاشلة: ${failedPosts.length}
 أفضل نوع محتوى أداءً: ${bestPerformingType}
 توزيع أنواع المحتوى: ${JSON.stringify(typeDistribution)}
+توزيع الوسائط (صور/فيديو): صور=${mediaDistribution.image} فيديو=${mediaDistribution.video}
 
 === الجدول ===
 ${scheduleInfo}
@@ -170,7 +182,7 @@ ${scheduleInfo}
 ${usedIdeas || 'لا توجد أفكار مستخدمة بعد'}
 
 === المنشورات الأخيرة (لا تكررها أو تقترب منها!) ===
-${recentPosts.map(p => `[${p.contentType}] ${p.title || p.content.substring(0, 100)}... → ${p.status}`).join('\n')}
+${recentPosts.map(p => `[${p.mediaType || 'image'}][${p.contentType}] ${p.title || p.content.substring(0, 100)}... → ${p.status}`).join('\n')}
 
 === بيانات التحليلات ===
 ${analyticsSummary}
@@ -186,17 +198,21 @@ ${recentDecisions || 'لا توجد قرارات سابقة'}
 5. التزم بأسلوب العلامة التجارية في كل شيء
 6. أضف هاشتاجات مناسبة وفعالة
 7. أضف Call To Action مناسب
-8. أنشئ وصفًا بالإنجليزية لصورة مناسبة لكل منشور
-9. المحتوى باللغة العربية دائمًا
-10. إذا مرت أكثر من 24 ساعة بدون نشر، يجب إنشاء ونشر محتوى جديد
-11. إذا كانت هناك مسودات متاحة، انشرها قبل إنشاء محتوى جديد
-12. تحقق من المهام المعلقة (صور قيد المعالجة) قبل إنشاء صور جديدة
+8. **كل منشور يجب أن يحتوي على وسائط (صورة أو فيديو) - لا تنشر نص فقط أبداً**
+9. **أنت تقرر لكل منشور: صورة أم فيديو** - نوّع بينهم بناءً على نوع المحتوى والاستراتيجية
+10. **أضف نص قصير وجذاب (textOverlay) ليُكتب على الصورة أو الفيديو** - يكون ملخص أو عنوان أو جملة جذابة
+11. أنشئ وصفًا بالإنجليزية لصورة/فيديو مناسب لكل منشور
+12. المحتوى باللغة العربية دائمًا
+13. إذا مرت أكثر من 24 ساعة بدون نشر، يجب إنشاء ونشر محتوى جديد
+14. إذا كانت هناك مسودات متاحة، انشرها قبل إنشاء محتوى جديد
+15. تحقق من المهام المعلقة (صور/فيديو قيد المعالجة) قبل إنشاء وسائط جديدة
+16. نوّع بين الصور والفيديو - لا تعتمد على نوع واحد فقط
 
 أجب بصيغة JSON فقط:
 {
   "decisions": [
     {
-      "action": "generate_content|generate_image|publish_post|analyze_performance|reply_comments|schedule_post|check_pending_tasks|idle",
+      "action": "generate_content|generate_image|generate_video|publish_post|analyze_performance|reply_comments|schedule_post|check_pending_tasks|idle",
       "reasoning": "لماذا اتخذت هذا القرار",
       "parameters": {
         // معلمات الإجراء المطلوب
@@ -233,6 +249,11 @@ async function executeGenerateContent(businessId: string, parameters: Record<str
   const products = safeParse(business.products);
   const goals = safeParse(business.marketingGoals);
 
+  // Count recent image vs video posts for variety
+  const recentMediaTypes = business.posts.slice(0, 10).map(p => p.mediaType || 'image');
+  const recentVideoCount = recentMediaTypes.filter(m => m === 'video').length;
+  const recentImageCount = recentMediaTypes.filter(m => m === 'image').length;
+
   const systemPrompt = `أنت وكيل تسويق ذكي ومستقل يعمل كموظف تسويق رقمي لشركة "${business.companyName}".
 
 معلومات الشركة:
@@ -249,6 +270,8 @@ ${recentContent ? `المنشورات السابقة (لا تكررها أو ت�
 
 ${usedIdeas ? `الأفكار المستخدمة سابقًا (لا تكررها):\n${usedIdeas}` : ''}
 
+آخر 10 منشورات: صور=${recentImageCount} فيديو=${recentVideoCount}
+
 قواعد صارمة:
 1. لا تكرر نفس الفكرة أو الأسلوب بشكل قريب من المنشورات السابقة
 2. نوّع بين أنواع المحتوى: تعليمي، تسويقي، قصصي، تفاعلي، ترويجي
@@ -257,7 +280,13 @@ ${usedIdeas ? `الأفكار المستخدمة سابقًا (لا تكررها
 5. أضف Call To Action مناسب لكل منشور
 6. المحتوى يجب أن يكون احترافيًا وجذابًا للجمهور المستهدف
 7. أجب دائمًا باللغة العربية
-8. كل منشور يجب أن يكون له هدف واضح وزاوية تسويقية مختلفة`;
+8. كل منشور يجب أن يكون له هدف واضح وزاوية تسويقية مختلفة
+9. **كل منشور يجب أن يحتوي على وسائط (صورة أو فيديو) - حدد mediaType لكل منشور**
+10. **نوّع بين الصور والفيديو** - إذا كان أغلب المنشورات الأخيرة صور، اجعل هذا فيديو والعكس
+11. **أضف textOverlay لكل منشور** - نص قصير جذاب يُكتب على الصورة/الفيديو (3-8 كلمات)
+12. **أضف videoPrompt لكل منشور فيديو** - وصف بالإنجليزية للفيديو المطلوب إنشاؤه
+13. المحتوى الترويجي والعروض يفضل أن يكون بالفيديو
+14. المحتوى التعليمي والقصصي يمكن أن يكون صورة أو فيديو`;
 
   const userPrompt = customPrompt
     ? customPrompt
@@ -272,7 +301,10 @@ ${usedIdeas ? `الأفكار المستخدمة سابقًا (لا تكررها
       "contentType": "educational|marketing|storytelling|interactive|promotional",
       "hashtags": ["هاشتاغ1", "هاشتاغ2"],
       "cta": "نداء الإجراء",
-      "imagePrompt": "وصف بالإنجليزية لصورة مناسبة للمنشور - كن محددًا وواقعيًا",
+      "mediaType": "image|video",
+      "textOverlay": "نص قصير جذاب يكتب على الصورة/الفيديو",
+      "imagePrompt": "وصف بالإنجليزية لصورة مناسبة للمنشور (فقط إذا mediaType=image)",
+      "videoPrompt": "وصف بالإنجليزية لفيديو مناسب للمنشور (فقط إذا mediaType=video)",
       "marketingAngle": "الزاوية التسويقية المستخدمة",
       "objective": "الهدف من هذا المنشور"
     }
@@ -300,7 +332,10 @@ ${usedIdeas ? `الأفكار المستخدمة سابقًا (لا تكررها
         contentType: contentType || 'marketing',
         hashtags: [],
         cta: 'تابعونا للمزيد',
-        imagePrompt: 'Professional social media post design',
+        mediaType: 'image',
+        textOverlay: 'عرض خاص',
+        imagePrompt: 'Professional social media post design with text overlay',
+        videoPrompt: null,
         marketingAngle: 'عام',
         objective: 'زيادة التفاعل',
       }],
@@ -320,6 +355,8 @@ ${usedIdeas ? `الأفكار المستخدمة سابقًا (لا تكررها
       },
     });
 
+    const mediaType = post.mediaType || 'image';
+
     const saved = await db.contentPost.create({
       data: {
         businessId,
@@ -331,7 +368,10 @@ ${usedIdeas ? `الأفكار المستخدمة سابقًا (لا تكررها
         status: 'draft',
         aiModel: 'claude-opus-4-8',
         generationPrompt: userPrompt,
-        imagePrompt: post.imagePrompt || null,
+        imagePrompt: mediaType === 'image' ? (post.imagePrompt || null) : null,
+        videoPrompt: mediaType === 'video' ? (post.videoPrompt || null) : null,
+        mediaType,
+        textOverlay: post.textOverlay || null,
         decisionReason: post.objective || 'قرار وكيل مستقل',
         isAutonomous: true,
       },
@@ -376,12 +416,60 @@ async function executeGenerateImage(businessId: string, parameters: Record<strin
         videoTaskId: taskId,
         aiModel: model === 'gpt-image-2' ? 'gpt-image-2' : 'grok-imagine',
         imagePrompt,
+        mediaType: 'image',
       },
     });
 
     return { success: true, details: `Image generation task created (${model}), task ID: ${taskId}`, postId };
   } catch (error) {
     return { success: false, details: `Image generation failed: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+async function executeGenerateVideo(businessId: string, parameters: Record<string, unknown>): Promise<{ success: boolean; details: string; postId?: string }> {
+  const postId = parameters.postId as string;
+  const videoPrompt = parameters.videoPrompt as string;
+  const textOverlay = parameters.textOverlay as string | undefined;
+
+  if (!postId || !videoPrompt) {
+    return { success: false, details: 'Post ID and video prompt are required' };
+  }
+
+  try {
+    // If there's text overlay, embed it in the video prompt
+    const enhancedPrompt = textOverlay 
+      ? createVideoPromptWithText(videoPrompt, textOverlay)
+      : videoPrompt;
+
+    const taskResult = await callKieAI('/api/v1/jobs/createTask', {
+      model: 'kling-video/v1/standard/text-to-video',
+      input: {
+        prompt: enhancedPrompt,
+        duration: '5',
+        aspect_ratio: '16:9',
+      },
+    });
+
+    const taskId = taskResult.data?.taskId || taskResult.data?.task_id;
+
+    if (!taskId) {
+      // Fallback: try with image-to-video or another model
+      return { success: false, details: `Video generation failed - no task ID. Response: ${JSON.stringify(taskResult).substring(0, 200)}` };
+    }
+
+    await db.contentPost.update({
+      where: { id: postId },
+      data: {
+        videoTaskId: taskId,
+        aiModel: 'kling-video',
+        videoPrompt,
+        mediaType: 'video',
+      },
+    });
+
+    return { success: true, details: `Video generation task created, task ID: ${taskId}`, postId };
+  } catch (error) {
+    return { success: false, details: `Video generation failed: ${error instanceof Error ? error.message : String(error)}` };
   }
 }
 
@@ -425,17 +513,51 @@ async function executePublishPostById(postId: string): Promise<{ success: boolea
     const fbBaseUrl = `https://graph.facebook.com/${apiVersion}/${pageId}`;
     const message = `${post.content}\n\n${post.hashtags ? post.hashtags.split(',').map((h: string) => h.startsWith('#') ? h : `#${h}`).join(' ') : ''}${post.cta ? '\n\n' + post.cta : ''}`;
 
-    if (post.imageData) {
+    if (post.mediaType === 'video' && post.videoUrl) {
+      // Publish video post
+      const videoRes = await fetch(
+        `${fbBaseUrl}/videos?access_token=${accessToken}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            file_url: post.videoUrl,
+            description: message,
+          }),
+        }
+      );
+      fbResponse = await videoRes.json();
+    } else if (post.imageData) {
+      // Publish image post (with text overlay already applied)
       const imageRes = await fetch(
         `${fbBaseUrl}/photos?access_token=${accessToken}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message, url: post.imageUrl || '', published: true }),
+          body: JSON.stringify({
+            message,
+            url: post.imageUrl || '',
+            published: true,
+          }),
         }
       );
-      fbResponse = await imageRes.json();
+      
+      if (!imageRes.ok) {
+        // Fallback: text-only post
+        const textRes = await fetch(
+          `${fbBaseUrl}/feed?access_token=${accessToken}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message }),
+          }
+        );
+        fbResponse = await textRes.json();
+      } else {
+        fbResponse = await imageRes.json();
+      }
     } else {
+      // Text-only post (shouldn't happen with the new rules, but fallback)
       const res = await fetch(
         `${fbBaseUrl}/feed?access_token=${accessToken}`,
         {
@@ -468,7 +590,7 @@ async function executePublishPostById(postId: string): Promise<{ success: boolea
       },
     });
 
-    return { success: true, details: 'Post published to Facebook successfully', postId };
+    return { success: true, details: `Post published to Facebook as ${post.mediaType || 'image'} post`, postId };
   } catch (error) {
     await db.contentPost.update({
       where: { id: postId },
@@ -528,6 +650,16 @@ async function executeAnalyzePerformance(businessId: string): Promise<{ success:
   const totalComments = posts.reduce((sum, p) => sum + (p.commentCount || 0), 0);
   const totalShares = posts.reduce((sum, p) => sum + (p.shareCount || 0), 0);
 
+  // Media type performance
+  const imagePosts = posts.filter(p => p.mediaType === 'image');
+  const videoPosts = posts.filter(p => p.mediaType === 'video');
+  const imageEngagement = imagePosts.length > 0 
+    ? (imagePosts.reduce((s, p) => s + (p.likeCount || 0) + (p.commentCount || 0) + (p.shareCount || 0), 0)) / imagePosts.length 
+    : 0;
+  const videoEngagement = videoPosts.length > 0 
+    ? (videoPosts.reduce((s, p) => s + (p.likeCount || 0) + (p.commentCount || 0) + (p.shareCount || 0), 0)) / videoPosts.length 
+    : 0;
+
   await db.analyticsSnapshot.create({
     data: {
       businessId,
@@ -543,7 +675,7 @@ async function executeAnalyzePerformance(businessId: string): Promise<{ success:
     },
   });
 
-  return { success: true, details: `Analytics snapshot created. Best type: ${bestContentType}, Best hour: ${bestHour}:00` };
+  return { success: true, details: `Analytics: Best type=${bestContentType}, Best hour=${bestHour}:00, Image avg=${imageEngagement.toFixed(1)}, Video avg=${videoEngagement.toFixed(1)}` };
 }
 
 async function executeCheckPendingTasks(businessId: string): Promise<{ success: boolean; details: string }> {
@@ -553,7 +685,7 @@ async function executeCheckPendingTasks(businessId: string): Promise<{ success: 
   });
 
   if (pendingPosts.length === 0) {
-    return { success: true, details: 'No pending image tasks' };
+    return { success: true, details: 'No pending media tasks' };
   }
 
   let completed = 0;
@@ -568,33 +700,68 @@ async function executeCheckPendingTasks(businessId: string): Promise<{ success: 
 
       if (taskStatus === 'SUCCESS' || taskStatus === 'completed' || taskStatus === 'succeeded') {
         const output = result.data?.output || result.data;
-        const imageUrl = output?.image_url || output?.imageUrl ||
-          (Array.isArray(output?.images) ? output.images[0]?.url : null) ||
-          (Array.isArray(output?.image_urls) ? output.image_urls[0] : null) ||
-          output?.url || output?.result;
 
-        if (imageUrl) {
-          await db.contentPost.update({
-            where: { id: post.id },
-            data: { imageUrl: typeof imageUrl === 'string' ? imageUrl : '', videoTaskId: null },
-          });
+        // Handle image result
+        if (post.mediaType === 'image' || (!post.mediaType && !post.videoUrl)) {
+          const imageUrl = output?.image_url || output?.imageUrl ||
+            (Array.isArray(output?.images) ? output.images[0]?.url : null) ||
+            (Array.isArray(output?.image_urls) ? output.image_urls[0] : null) ||
+            output?.url || output?.result;
 
-          // Try to download base64
-          try {
-            const imageResponse = await fetch(imageUrl);
-            if (imageResponse.ok) {
-              const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
-              const base64 = imageBuffer.toString('base64');
-              await db.contentPost.update({
-                where: { id: post.id },
-                data: { imageData: base64 },
-              });
+          if (imageUrl) {
+            await db.contentPost.update({
+              where: { id: post.id },
+              data: { imageUrl: typeof imageUrl === 'string' ? imageUrl : '', videoTaskId: null },
+            });
+
+            // Download image and apply text overlay
+            try {
+              const imageResponse = await fetch(imageUrl);
+              if (imageResponse.ok) {
+                const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+                
+                // Apply text overlay if defined
+                let finalBase64: string;
+                if (post.textOverlay) {
+                  const overlayBuffer = await addTextOverlay(imageBuffer, {
+                    text: post.textOverlay,
+                    fontSize: 42,
+                    position: 'bottom',
+                    backgroundColor: 'rgba(0,0,0,0.65)',
+                  });
+                  finalBase64 = overlayBuffer.toString('base64');
+                } else {
+                  finalBase64 = imageBuffer.toString('base64');
+                }
+
+                await db.contentPost.update({
+                  where: { id: post.id },
+                  data: { imageData: finalBase64 },
+                });
+              }
+            } catch {
+              // URL stored, base64/overlay failed - that's OK
             }
-          } catch {
-            // URL stored, base64 failed - that's OK
-          }
 
-          completed++;
+            completed++;
+          }
+        }
+        // Handle video result
+        else if (post.mediaType === 'video') {
+          const videoUrl = output?.video_url || output?.videoUrl || 
+            (Array.isArray(output?.videos) ? output.videos[0]?.url : null) ||
+            output?.url || output?.result;
+
+          if (videoUrl) {
+            await db.contentPost.update({
+              where: { id: post.id },
+              data: { 
+                videoUrl: typeof videoUrl === 'string' ? videoUrl : '', 
+                videoTaskId: null,
+              },
+            });
+            completed++;
+          }
         }
       } else if (taskStatus === 'FAILED' || taskStatus === 'failed') {
         await db.contentPost.update({
@@ -649,7 +816,7 @@ export async function runAgentCycle(businessId: string): Promise<AgentRunResult>
   const decisions: AgentDecision[] = [];
 
   try {
-    // Step 1: Check for pending image tasks first
+    // Step 1: Check for pending media tasks first
     const pendingCheck = await executeCheckPendingTasks(businessId);
 
     // Step 2: Build context for Claude
@@ -661,10 +828,11 @@ export async function runAgentCycle(businessId: string): Promise<AgentRunResult>
 تحليل سريع:
 - هل حان وقت نشر محتوى جديد؟
 - هل هناك مسودات يجب نشرها؟
-- هل هناك صور معلقة يجب فحصها؟
+- هل هناك وسائط (صور/فيديو) معلقة يجب فحصها؟
 - هل يجب تحليل الأداء؟
 - ما نوع المحتوى الأنسب للوقت الحالي؟
 - ما الزاوية التسويقية الأفضل؟
+- هل يجب إنشاء صورة أم فيديو للمنشور القادم؟
 
 اتخذ قرارك وأجب بصيغة JSON فقط:
 {
@@ -720,30 +888,69 @@ export async function runAgentCycle(businessId: string): Promise<AgentRunResult>
         switch (decision.action) {
           case 'generate_content':
             result = await executeGenerateContent(businessId, decision.parameters);
-            // After generating content, also generate image for the first post
+            // After generating content, also generate media for the post
             if (result.success && result.postId) {
               const post = await db.contentPost.findUnique({ where: { id: result.postId } });
-              if (post?.imagePrompt) {
+              if (post) {
                 const business = await db.businessProfile.findUnique({ where: { id: businessId } });
-                const imageModel = (business?.imageModel as 'gpt-image-2' | 'grok-imagine') || 'gpt-image-2';
-                const imgResult = await executeGenerateImage(businessId, {
-                  postId: result.postId,
-                  imagePrompt: post.imagePrompt,
-                  imageModel,
-                  aspectRatio: imageModel === 'gpt-image-2' ? 'auto' : '1:1',
-                });
-                results.push({
-                  action: 'generate_image',
-                  success: imgResult.success,
-                  details: imgResult.details,
-                  postId: result.postId,
-                  executionTime: Date.now() - actionStart,
-                });
+                
+                if (post.mediaType === 'video' && post.videoPrompt) {
+                  // Generate video
+                  const vidResult = await executeGenerateVideo(businessId, {
+                    postId: result.postId,
+                    videoPrompt: post.videoPrompt,
+                    textOverlay: post.textOverlay,
+                  });
+                  results.push({
+                    action: 'generate_video',
+                    success: vidResult.success,
+                    details: vidResult.details,
+                    postId: result.postId,
+                    executionTime: Date.now() - actionStart,
+                  });
+                } else if (post.imagePrompt) {
+                  // Generate image
+                  const imageModel = (business?.imageModel as 'gpt-image-2' | 'grok-imagine') || 'gpt-image-2';
+                  const imgResult = await executeGenerateImage(businessId, {
+                    postId: result.postId,
+                    imagePrompt: post.imagePrompt,
+                    imageModel,
+                    aspectRatio: imageModel === 'gpt-image-2' ? 'auto' : '1:1',
+                  });
+                  results.push({
+                    action: 'generate_image',
+                    success: imgResult.success,
+                    details: imgResult.details,
+                    postId: result.postId,
+                    executionTime: Date.now() - actionStart,
+                  });
+                } else {
+                  // No prompt provided - generate one based on content
+                  const fallbackPrompt = `Professional marketing image for social media post about ${post.content.substring(0, 100)}`;
+                  const business2 = await db.businessProfile.findUnique({ where: { id: businessId } });
+                  const imageModel2 = (business2?.imageModel as 'gpt-image-2' | 'grok-imagine') || 'gpt-image-2';
+                  const imgResult = await executeGenerateImage(businessId, {
+                    postId: result.postId,
+                    imagePrompt: fallbackPrompt,
+                    imageModel: imageModel2,
+                    aspectRatio: imageModel2 === 'gpt-image-2' ? 'auto' : '1:1',
+                  });
+                  results.push({
+                    action: 'generate_image',
+                    success: imgResult.success,
+                    details: imgResult.details,
+                    postId: result.postId,
+                    executionTime: Date.now() - actionStart,
+                  });
+                }
               }
             }
             break;
           case 'generate_image':
             result = await executeGenerateImage(businessId, decision.parameters);
+            break;
+          case 'generate_video':
+            result = await executeGenerateVideo(businessId, decision.parameters);
             break;
           case 'publish_post':
             result = await executePublishPost(businessId, decision.parameters);
@@ -872,7 +1079,7 @@ export async function getAgentStatus(businessId: string): Promise<AgentStatus> {
   return {
     isRunning: lastLog?.status === 'executing',
     lastRunAt: lastLog?.createdAt?.toISOString() || null,
-    nextRunAt: null, // Calculated by frontend based on schedule
+    nextRunAt: null,
     mode: (business.agentMode as AgentStatus['mode']) || 'manual',
     totalDecisions,
     recentActions,

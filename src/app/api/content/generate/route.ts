@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { callClaudeOpus } from '@/lib/ai';
 
 // POST - Generate content using Claude Opus 4.8 (Executive Brain)
+// Every post MUST have media (image or video) with text overlay
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -44,6 +45,11 @@ export async function POST(req: NextRequest) {
       try { return JSON.parse(business.faqs); } catch { return business.faqs; }
     })() : null;
 
+    // Count recent media types for variety
+    const recentMediaTypes = business.posts.slice(0, 10).map(p => p.mediaType || 'image');
+    const recentVideoCount = recentMediaTypes.filter(m => m === 'video').length;
+    const recentImageCount = recentMediaTypes.filter(m => m === 'image').length;
+
     const systemPrompt = `أنت وكيل تسويق ذكي ومستقل يعمل كموظف تسويق رقمي لشركة "${business.companyName}".
 
 معلومات الشركة:
@@ -62,6 +68,8 @@ ${recentContent}` : ''}
 ${usedIdeas ? `الأفكار المستخدمة سابقًا (لا تكررها):
 ${usedIdeas}` : ''}
 
+آخر 10 منشورات: صور=${recentImageCount} فيديو=${recentVideoCount}
+
 قواعد صارمة:
 1. لا تكرر نفس الفكرة أو الأسلوب بشكل قريب من المنشورات السابقة
 2. نوّع بين أنواع المحتوى: تعليمي، تسويقي، قصصي، تفاعلي، ترويجي
@@ -69,7 +77,13 @@ ${usedIdeas}` : ''}
 4. أضف هاشتاجات مناسبة وفعالة
 5. أضف Call To Action مناسب لكل منشور
 6. المحتوى يجب أن يكون احترافيًا وجذابًا للجمهور المستهدف
-7. أجب دائمًا باللغة العربية`;
+7. أجب دائمًا باللغة العربية
+8. **كل منشور يجب أن يحتوي على وسائط (صورة أو فيديو) - حدد mediaType لكل منشور**
+9. **نوّع بين الصور والفيديو** - إذا كان أغلب المنشورات الأخيرة صور، اجعل هذا فيديو والعكس
+10. **أضف textOverlay لكل منشور** - نص قصير جذاب يُكتب على الصورة/الفيديو (3-8 كلمات)
+11. **أضف videoPrompt لكل منشور فيديو** - وصف بالإنجليزية للفيديو المطلوب إنشاؤه
+12. المحتوى الترويجي والعروض يفضل أن يكون بالفيديو
+13. المحتوى التعليمي والقصصي يمكن أن يكون صورة أو فيديو`;
 
     const userPrompt = customPrompt
       ? customPrompt
@@ -84,7 +98,12 @@ ${usedIdeas}` : ''}
       "contentType": "educational|marketing|storytelling|interactive|promotional",
       "hashtags": ["هاشتاغ1", "هاشتاغ2"],
       "cta": "نداء الإجراء",
-      "imagePrompt": "وصف بالإنجليزية لصورة مناسبة للمنشور - كن محددًا وواقعيًا"
+      "mediaType": "image|video",
+      "textOverlay": "نص قصير جذاب يكتب على الصورة/الفيديو",
+      "imagePrompt": "وصف بالإنجليزية لصورة مناسبة للمنشور (فقط إذا mediaType=image)",
+      "videoPrompt": "وصف بالإنجليزية لفيديو مناسب للمنشور (فقط إذا mediaType=video)",
+      "marketingAngle": "الزاوية التسويقية",
+      "objective": "الهدف من المنشور"
     }
   ]
 }`;
@@ -114,7 +133,10 @@ ${usedIdeas}` : ''}
           contentType: contentType || 'marketing',
           hashtags: [],
           cta: 'تابعونا للمزيد',
-          imagePrompt: 'Professional social media post design',
+          mediaType: 'image',
+          textOverlay: 'عرض مميز',
+          imagePrompt: 'Professional social media post design with text overlay',
+          videoPrompt: null,
         }],
       };
     }
@@ -133,6 +155,8 @@ ${usedIdeas}` : ''}
         },
       });
 
+      const mediaType = post.mediaType || 'image';
+
       const saved = await db.contentPost.create({
         data: {
           businessId,
@@ -144,12 +168,19 @@ ${usedIdeas}` : ''}
           status: 'draft',
           aiModel: 'claude-opus-4-8',
           generationPrompt: userPrompt,
+          imagePrompt: mediaType === 'image' ? (post.imagePrompt || null) : null,
+          videoPrompt: mediaType === 'video' ? (post.videoPrompt || null) : null,
+          mediaType,
+          textOverlay: post.textOverlay || null,
         },
       });
 
       savedPosts.push({
         ...saved,
         imagePrompt: post.imagePrompt || '',
+        videoPrompt: post.videoPrompt || '',
+        mediaType,
+        textOverlay: post.textOverlay || '',
       });
     }
 

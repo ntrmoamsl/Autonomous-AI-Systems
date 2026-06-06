@@ -63,6 +63,9 @@ model ContentPost {
   commentCount    Int?
   shareCount      Int?
   imagePrompt     String?  // The prompt used for image generation
+  mediaType       String   @default("image") // image or video - agent decides
+  textOverlay     String?  // Short text written ON the image/video
+  videoPrompt     String?  // The prompt used for video generation
   decisionReason  String?  // Why the agent decided to create this post
   isAutonomous    Boolean  @default(false) // Was this created autonomously?
   business        BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)

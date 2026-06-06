@@ -17,9 +17,48 @@ export async function GET(req: NextRequest) {
       where,
       orderBy: { createdAt: 'desc' },
       take: limit,
+      select: {
+        id: true,
+        businessId: true,
+        title: true,
+        content: true,
+        contentType: true,
+        hashtags: true,
+        cta: true,
+        imageUrl: true,
+        imageData: true,
+        videoUrl: true,
+        videoTaskId: true,
+        platform: true,
+        status: true,
+        scheduledAt: true,
+        publishedAt: true,
+        retryCount: true,
+        aiModel: true,
+        generationPrompt: true,
+        engagementScore: true,
+        reachCount: true,
+        likeCount: true,
+        commentCount: true,
+        shareCount: true,
+        imagePrompt: true,
+        mediaType: true,
+        textOverlay: true,
+        videoPrompt: true,
+        decisionReason: true,
+        isAutonomous: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
-    return NextResponse.json({ posts });
+    // Truncate large imageData to prevent memory issues in list view
+    const safePosts = posts.map(p => ({
+      ...p,
+      imageData: p.imageData ? '(stored)' : null,
+    }));
+
+    return NextResponse.json({ posts: safePosts });
   } catch (error) {
     console.error('Error fetching posts:', error);
     return NextResponse.json({ error: 'Failed to fetch posts' }, { status: 500 });

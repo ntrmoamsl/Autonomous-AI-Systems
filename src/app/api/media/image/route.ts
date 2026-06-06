@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { createImageTask, getKieTaskDetail } from '@/lib/ai';
+import { addTextOverlayToBase64, addTextOverlay } from '@/lib/text-overlay';
 
-// POST - Generate image using Grok Imagine or GPT Image-2 via Kie.ai API
+// POST - Generate image using GPT Image-2 or Grok Imagine via Kie.ai API
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { postId, prompt, aspectRatio, resolution, model = 'gpt-image-2' } = body;
+    const { postId, prompt, aspectRatio, resolution, model = 'gpt-image-2', textOverlay } = body;
 
     if (!prompt) {
       return NextResponse.json({ error: 'Image prompt is required' }, { status: 400 });
@@ -38,13 +39,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Save the task ID to the post
+    // Save the task ID and text overlay to the post
     if (postId) {
       await db.contentPost.update({
         where: { id: postId },
         data: { 
           videoTaskId: taskId, // Reuse this field for image task ID too
           aiModel: validModel === 'gpt-image-2' ? 'gpt-image-2' : 'grok-imagine',
+          mediaType: 'image',
+          ...(textOverlay ? { textOverlay } : {}),
         },
       });
     }
@@ -66,6 +69,7 @@ export async function POST(req: NextRequest) {
 }
 
 // GET - Check image generation task status and retrieve result
+// Applies text overlay when image is ready
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -100,21 +104,37 @@ export async function GET(req: NextRequest) {
           },
         });
 
-        // Try to download and convert to base64 for Facebook publishing
+        // Download image and apply text overlay
         try {
           const imageResponse = await fetch(imageUrl);
           if (imageResponse.ok) {
             const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
-            const base64 = imageBuffer.toString('base64');
+            
+            // Get the post to check for text overlay
+            const post = await db.contentPost.findUnique({ where: { id: postId } });
+            
+            let finalBase64: string;
+            if (post?.textOverlay) {
+              // Apply text overlay
+              const overlayBuffer = await addTextOverlay(imageBuffer, {
+                text: post.textOverlay,
+                fontSize: 42,
+                position: 'bottom',
+                backgroundColor: 'rgba(0,0,0,0.65)',
+              });
+              finalBase64 = overlayBuffer.toString('base64');
+            } else {
+              finalBase64 = imageBuffer.toString('base64');
+            }
             
             await db.contentPost.update({
               where: { id: postId },
-              data: { imageData: base64 },
+              data: { imageData: finalBase64 },
             });
           }
         } catch (downloadError) {
-          console.error('Error downloading image for base64 conversion:', downloadError);
-          // URL is still stored, just no base64
+          console.error('Error downloading image for base64/overlay conversion:', downloadError);
+          // URL is still stored, just no base64/overlay
         }
       }
 

@@ -1,20 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { callKieAI, getKieTaskDetail } from '@/lib/ai';
+import { createVideoPromptWithText } from '@/lib/text-overlay';
 
-// POST - Generate video using Kie.ai API
+// POST - Generate video using Kie.ai API with text overlay support
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { postId, prompt, imageUrl, model = 'kling-video' } = body;
+    const { postId, prompt, imageUrl, model = 'kling-video/v1/standard/text-to-video', textOverlay } = body;
 
     if (!prompt && !imageUrl) {
       return NextResponse.json({ error: 'Video prompt or image URL is required' }, { status: 400 });
     }
 
+    // If there's text overlay, embed it in the video prompt
+    const enhancedPrompt = textOverlay 
+      ? createVideoPromptWithText(prompt || '', textOverlay)
+      : (prompt || '');
+
     // Create video generation task via Kie.ai
     const taskInput: Record<string, unknown> = {
-      prompt: prompt || '',
+      prompt: enhancedPrompt,
+      duration: '5',
+      aspect_ratio: '16:9',
     };
 
     if (imageUrl) {
@@ -22,7 +30,7 @@ export async function POST(req: NextRequest) {
     }
 
     const taskResult = await callKieAI('/api/v1/jobs/createTask', {
-      model: model,
+      model,
       input: taskInput,
     });
 
@@ -39,7 +47,12 @@ export async function POST(req: NextRequest) {
     if (postId) {
       await db.contentPost.update({
         where: { id: postId },
-        data: { videoTaskId: taskId },
+        data: { 
+          videoTaskId: taskId,
+          mediaType: 'video',
+          aiModel: 'kling-video',
+          ...(textOverlay ? { textOverlay } : {}),
+        },
       });
     }
 
