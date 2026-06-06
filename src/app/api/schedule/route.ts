@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
       data: {
         businessId,
         frequency: frequency || 'daily',
-        preferredTimes: preferredTimes ? JSON.stringify(preferredTimes) : null,
+        preferredTimes: typeof preferredTimes === 'string' ? preferredTimes : (preferredTimes ? JSON.stringify(preferredTimes) : null),
         daysOfWeek: daysOfWeek ? JSON.stringify(daysOfWeek) : null,
         autoPublish: autoPublish || false,
         autoGenerate: autoGenerate || false,

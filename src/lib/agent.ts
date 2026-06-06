@@ -814,14 +814,67 @@ export async function runAgentCycle(businessId: string): Promise<AgentRunResult>
   const decisions: AgentDecision[] = [];
 
   try {
+    // ═══════════════════════════════════════════════════════════
+    // PRIORITY CHECK: Is it a preferred publishing time?
+    // This runs FIRST before any thinking, to ensure timely publishing.
+    // If it's publish time + there are ready posts → publish immediately!
+    // ═══════════════════════════════════════════════════════════
+    const publishWindow = await checkPublishTimeWindow(businessId);
+    
+    if (publishWindow.isPublishTime) {
+      // PRIORITY ACTION: Auto-publish all ready posts at preferred time
+      const publishResults = await autoPublishAtPreferredTime(businessId);
+      
+      for (const pr of publishResults) {
+        results.push({
+          action: 'publish_post',
+          success: pr.success,
+          details: `[نشر تلقائي - وقت مفضل] ${pr.details}`,
+          postId: pr.postId,
+          executionTime: Date.now() - startTime,
+        });
+      }
+
+      // Log the priority publish event
+      if (publishResults.length > 0) {
+        await db.agentLog.create({
+          data: {
+            businessId,
+            action: 'publish_post',
+            decision: JSON.stringify({ 
+              autoPublish: true, 
+              reason: 'preferred_time_priority',
+              matchedTime: publishWindow.matchedTime,
+              postsPublished: publishResults.length,
+            }),
+            reasoning: `⏰ حان وقت النشر المفضل (${publishWindow.matchedTime}) — تم نشر ${publishResults.length} منشورات بالأولوية القصوى قبل بدء التفكير`,
+            status: 'completed',
+            result: JSON.stringify(publishResults),
+          },
+        });
+      }
+
+      // Continue with thinking cycle AFTER publishing
+      // This way, the agent can generate new content for the NEXT publish time
+    }
+
     // Step 1: Check for pending media tasks first
     const pendingCheck = await executeCheckPendingTasks(businessId);
 
     // Step 2: Build context for Claude
     const context = await buildAgentContext(businessId);
 
+    // Add publish-time awareness to the context
+    const publishTimeNote = publishWindow.isPublishTime
+      ? `\n\n⚠️ تنبيه مهم: الوقت الحالي هو وقت النشر المفضل (${publishWindow.matchedTime})! تم بالفعل نشر المنشورات الجاهزة تلقائياً. الآن يجب أن تولد محتوى جديد للوقت المفضل القادم.`
+      : publishWindow.matchedTime && publishWindow.scheduledPostsReady === 0
+        ? `\n\n💡 ملاحظة: الوقت الحالي قريب من وقت النشر المفضل (${publishWindow.matchedTime}) لكن لا توجد منشورات جاهزة. يجب توليد محتوى بالسرعة الممكنة.`
+        : '';
+
     // Step 3: Ask Claude what to do
-    const agentPrompt = `بناءً على كل المعلومات أعلاه، ما الذي يجب أن تفعله الآن كوكيل تسويق مستقل؟
+    const agentPrompt = `${publishTimeNote}
+
+بناءً على كل المعلومات أعلاه، ما الذي يجب أن تفعله الآن كوكيل تسويق مستقل؟
 
 تحليل سريع:
 - هل حان وقت نشر محتوى جديد؟
@@ -1076,6 +1129,161 @@ export async function getAgentStatus(businessId: string): Promise<AgentStatus> {
     recentActions,
     pendingTasks,
   };
+}
+
+// ============================================================
+// Publish Time Checker - Smart scheduling awareness
+// ============================================================
+
+/**
+ * Checks if the current time is within a preferred publishing time window.
+ * Returns the matched time and how many minutes until the window closes.
+ * 
+ * Logic: If current time is within ±5 minutes of a preferred time,
+ * it's considered "publish time" and publishing gets priority.
+ */
+async function checkPublishTimeWindow(businessId: string): Promise<{
+  isPublishTime: boolean;
+  matchedTime: string | null;
+  minutesRemaining: number;
+  scheduledPostsReady: number;
+}> {
+  const schedule = await db.scheduleConfig.findFirst({
+    where: { businessId, isActive: true },
+  });
+
+  if (!schedule || !schedule.preferredTimes || !schedule.autoPublish) {
+    return { isPublishTime: false, matchedTime: null, minutesRemaining: 0, scheduledPostsReady: 0 };
+  }
+
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+
+  // Parse preferred times (supports formats: "9ص", "6م", "09:00", "18:00", or JSON array)
+  let preferredTimesRaw = schedule.preferredTimes || '';
+  // Handle JSON-stringified format: "\"9ص, 6م\"" or "[\"9ص\",\"6م\"]"
+  try {
+    const parsed = JSON.parse(preferredTimesRaw);
+    if (Array.isArray(parsed)) {
+      preferredTimesRaw = parsed.join(', ');
+    } else if (typeof parsed === 'string') {
+      preferredTimesRaw = parsed;
+    }
+  } catch {
+    // Not JSON, use as-is (plain string like "9ص, 6م")
+  }
+  const preferredTimes = preferredTimesRaw.split(',').map(t => t.trim()).filter(Boolean);
+  
+  let matchedTime: string | null = null;
+  let minutesRemaining = 0;
+
+  for (const timeStr of preferredTimes) {
+    const parsed = parseArabicTime(timeStr);
+    if (!parsed) continue;
+
+    const diffMinutes = (parsed.hour * 60 + parsed.minute) - (currentHour * 60 + currentMinute);
+    
+    // Within ±5 minutes of preferred time = publish window
+    if (diffMinutes >= -5 && diffMinutes <= 5) {
+      matchedTime = timeStr;
+      minutesRemaining = 5 - diffMinutes; // How many minutes left in window
+      break;
+    }
+  }
+
+  // Count scheduled posts that are ready to publish
+  const scheduledPostsReady = matchedTime
+    ? await db.contentPost.count({
+        where: {
+          businessId,
+          status: { in: ['scheduled', 'draft'] },
+        },
+      })
+    : 0;
+
+  return {
+    isPublishTime: !!matchedTime && scheduledPostsReady > 0,
+    matchedTime,
+    minutesRemaining: Math.max(0, minutesRemaining),
+    scheduledPostsReady,
+  };
+}
+
+/**
+ * Parses Arabic 12-hour time format to 24-hour format.
+ * Supports: "9ص", "10م", "12ص", "1م", "09:00", "18:00"
+ */
+function parseArabicTime(timeStr: string): { hour: number; minute: number } | null {
+  // Try Arabic format first (e.g., "9ص", "10م", "12ص", "1م")
+  const arabicMatch = timeStr.match(/^(\d{1,2})(ص|م)$/);
+  if (arabicMatch) {
+    let hour = parseInt(arabicMatch[1]);
+    const period = arabicMatch[2];
+    
+    if (period === 'ص') { // AM
+      if (hour === 12) hour = 0; // 12ص = midnight
+    } else { // PM
+      if (hour !== 12) hour += 12; // 1م=13, 12م=12
+    }
+    
+    return { hour, minute: 0 };
+  }
+
+  // Try 24-hour format (e.g., "09:00", "18:00")
+  const timeMatch = timeStr.match(/^(\d{1,2}):(\d{2})$/);
+  if (timeMatch) {
+    return { hour: parseInt(timeMatch[1]), minute: parseInt(timeMatch[2]) };
+  }
+
+  return null;
+}
+
+/**
+ * Auto-publishes all scheduled/draft posts when it's a preferred publishing time.
+ * This runs BEFORE the agent's thinking cycle to ensure timely publishing.
+ */
+async function autoPublishAtPreferredTime(businessId: string): Promise<Array<{ success: boolean; details: string; postId?: string }>> {
+  const results: Array<{ success: boolean; details: string; postId?: string }> = [];
+  
+  // Get all scheduled posts (ordered by creation time)
+  const scheduledPosts = await db.contentPost.findMany({
+    where: {
+      businessId,
+      status: { in: ['scheduled', 'draft'] },
+    },
+    orderBy: [
+      { status: 'asc' }, // scheduled first, then draft
+      { createdAt: 'asc' },
+    ],
+  });
+
+  for (const post of scheduledPosts) {
+    // Only publish posts that have media ready (image or video)
+    const hasMedia = post.imageData || post.imageUrl || post.videoUrl;
+    if (!hasMedia) {
+      // Skip posts without media - they'll be picked up after media generation
+      continue;
+    }
+
+    const result = await executePublishPostById(post.id);
+    results.push(result);
+
+    // Log the auto-publish action
+    await db.agentLog.create({
+      data: {
+        businessId,
+        action: 'publish_post',
+        decision: JSON.stringify({ postId: post.id, autoPublish: true, reason: 'preferred_publish_time' }),
+        reasoning: `نشر تلقائي في الوقت المفضل - المنشور جاهز ووقت النشر حان`,
+        status: result.success ? 'completed' : 'failed',
+        result: JSON.stringify(result),
+        relatedPostId: post.id,
+      },
+    });
+  }
+
+  return results;
 }
 
 // ============================================================

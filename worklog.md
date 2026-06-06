@@ -410,3 +410,46 @@ Stage Summary:
 - Color coding: red=urgent news, amber=fast, green=normal, blue=slow
 - Custom badge shows active custom interval with ⚡ icon
 - Both Dashboard and Settings tabs have the same speed selector
+
+---
+Task ID: 11
+Agent: Main Agent
+Task: Add publish-time priority system - publish at preferred times even during thinking cycle
+
+Work Log:
+- Identified critical issue: Agent's thinking cycle could miss preferred publishing times
+- If agent starts thinking at 10:00 (publish time) and takes 5 minutes to generate content, 
+  the publish time window would pass without publishing
+- Added `checkPublishTimeWindow()` function:
+  - Checks if current time is within ±5 minutes of a preferred publishing time
+  - Reads from ScheduleConfig (supports both Arabic format "9ص" and 24h format "09:00")
+  - Only activates if autoPublish is enabled AND there are ready posts
+  - Returns: isPublishTime, matchedTime, minutesRemaining, scheduledPostsReady
+- Added `parseArabicTime()` helper:
+  - Parses "9ص" → 09:00, "1م" → 13:00, "12ص" → 00:00, "12م" → 12:00
+  - Also supports "09:00" format
+- Added `autoPublishAtPreferredTime()` function:
+  - Auto-publishes all scheduled/draft posts that have media ready
+  - Skips posts without media (still generating)
+  - Logs each auto-publish with reason "preferred_publish_time"
+  - Ordered: scheduled first, then drafts, by creation time
+- Modified `runAgentCycle()` with PRIORITY CHECK:
+  - Step 0 (NEW): Check if it's a preferred publishing time → auto-publish immediately
+  - Then continue with normal thinking cycle (generate content for NEXT publish time)
+  - Added publish-time awareness to Claude's context:
+    - "⚠️ الوقت الحالي هو وقت النشر المفضل" → tells AI content was already published
+    - "💡 الوقت قريب من وقت النشر المفضل لكن لا توجد منشورات جاهزة" → tells AI to generate urgently
+- Fixed ScheduleConfig preferredTimes storage: now stores as plain string (not double-JSON-stringified)
+- Fixed preferredTimes parsing in checkPublishTimeWindow: handles both JSON and plain string formats
+- All lint checks pass with zero errors
+- Dev server running with no errors
+
+Stage Summary:
+- NEW: Publish-time priority system ensures posts are published at preferred times
+- Even if the agent is in the middle of a thinking/generation cycle, it will:
+  1. FIRST auto-publish all ready posts at the preferred time
+  2. THEN continue thinking and generating new content
+- The publish window is ±5 minutes around the preferred time
+- Only posts with ready media (image/video) are auto-published
+- Claude is made aware of the publish-time situation for better decisions
+- This solves the user's concern: "What if the agent is thinking when publish time arrives?"
