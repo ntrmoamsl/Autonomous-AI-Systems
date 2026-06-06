@@ -157,3 +157,67 @@ Stage Summary:
 - API follows Kie.ai Claude Opus 4.8 OpenAPI spec with proper auth headers
 - UI properly reflects the three-model architecture: Claude Opus 4.8 (brain) + GPT Image-2 (images) + Grok Imagine (alt images)
 - Settings tab shows complete model hierarchy with appropriate badges
+
+---
+Task ID: 5
+Agent: Main Agent
+Task: Transform system from manual tool to fully autonomous AI marketing agent
+
+Work Log:
+- Updated Prisma schema with new models and fields:
+  - Added AgentLog model (id, businessId, action, decision, reasoning, result, status, relatedPostId, tokensUsed, executionTime)
+  - Added agentMode field to BusinessProfile (manual/semi-auto/fully-autonomous)
+  - Added imageModel field to BusinessProfile (gpt-image-2/grok-imagine)
+  - Added isAutonomous and decisionReason fields to ContentPost
+  - Added isAutonomous field to SmartReply
+  - Added imagePrompt and marketingAngle fields to ContentIdea
+- Built Autonomous Agent Engine (/src/lib/agent.ts):
+  - buildAgentContext() - Constructs comprehensive context for the AI brain including business data, posts history, analytics, schedule, and agent logs
+  - runAgentCycle() - Main autonomous loop that:
+    1. Checks pending image tasks
+    2. Builds full context from business memory
+    3. Asks Claude Opus 4.8 what to do (the brain makes independent decisions)
+    4. Parses AI decisions (generate_content, publish_post, schedule_post, analyze_performance, etc.)
+    5. Executes each decision autonomously
+    6. Logs all decisions with reasoning to AgentLog
+  - executeGenerateContent() - Generates content autonomously with deduplication
+  - executeGenerateImage() - Creates image generation tasks automatically
+  - executePublishPost() - Publishes posts to Facebook automatically
+  - executeAnalyzePerformance() - Creates analytics snapshots
+  - executeCheckPendingTasks() - Checks async image generation tasks
+  - executeSchedulePost() - Schedules posts at optimal times
+  - getAgentStatus() - Returns current agent status
+- Created Agent API routes:
+  - POST /api/agent/run - Trigger agent cycle
+  - GET /api/agent/status - Get agent status
+  - GET /api/agent/log - Get agent decision logs with stats
+- Updated Business API to support agentMode and imageModel fields
+- Completely rewrote page.tsx (2,265 lines) with autonomous-first design:
+  - 7 tabs: Dashboard (لوحة التحكم), Training, Content, Calendar, Analytics, Replies, Settings
+  - Dashboard is the main tab with agent control panel
+  - Agent Mode Selector (Manual/Semi-Auto/Fully Autonomous)
+  - "Run Agent" button for manual trigger
+  - Agent status display with running/idle state and pulsing indicator
+  - Auto-run interval selector (2h, 4h, 6h, 12h, daily)
+  - Decision feed showing recent agent decisions with Arabic reasoning
+  - Quick stats cards
+  - Content tab with autonomous badges on agent-created posts
+  - Sticky footer with AI attribution
+  - Full Arabic RTL layout
+- Tested autonomous agent cycle successfully:
+  - First cycle: Agent decided to publish 2 draft posts and schedule 1 for later
+  - Reasoning: "Must publish drafts before creating new content" (Rule 11)
+  - Second cycle: Agent decided to generate new content since no drafts remain
+  - Agent also auto-generated an image for the new post
+- All 61/62 browser verification tests pass
+- All lint checks pass with zero errors
+
+Stage Summary:
+- System is now FULLY AUTONOMOUS - not just a content tool
+- Agent makes independent decisions about what/when/how to post
+- Decisions are logged with full reasoning in Arabic
+- Agent uses Claude Opus 4.8 as Executive Brain for decision-making
+- Agent considers: business data, past posts, analytics, schedule, time since last post
+- Strict deduplication prevents content repetition
+- Three agent modes: Manual (user controls), Semi-Auto (agent generates, user approves), Fully Autonomous (agent does everything)
+- Complete decision audit trail in AgentLog database

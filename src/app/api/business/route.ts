@@ -29,6 +29,8 @@ export async function POST(req: NextRequest) {
       faqs,
       brandColors,
       additionalInfo,
+      agentMode,
+      imageModel,
     } = body;
 
     // Deactivate other profiles
@@ -49,6 +51,8 @@ export async function POST(req: NextRequest) {
         faqs: faqs ? (typeof faqs === 'string' ? faqs : JSON.stringify(faqs)) : null,
         brandColors: brandColors || null,
         additionalInfo: additionalInfo || null,
+        agentMode: agentMode || 'manual',
+        imageModel: imageModel || 'gpt-image-2',
         isActive: true,
       },
     });
@@ -66,15 +70,29 @@ export async function PUT(req: NextRequest) {
     const body = await req.json();
     const { id, ...data } = body;
 
+    const updateData: Record<string, unknown> = { ...data };
+
+    // Handle JSON fields
+    if (data.products && typeof data.products !== 'string') {
+      updateData.products = JSON.stringify(data.products);
+    }
+    if (data.marketingGoals && typeof data.marketingGoals !== 'string') {
+      updateData.marketingGoals = JSON.stringify(data.marketingGoals);
+    }
+    if (data.offers) {
+      updateData.offers = typeof data.offers === 'string' ? data.offers : JSON.stringify(data.offers);
+    } else if (data.offers === '') {
+      updateData.offers = null;
+    }
+    if (data.faqs) {
+      updateData.faqs = typeof data.faqs === 'string' ? data.faqs : JSON.stringify(data.faqs);
+    } else if (data.faqs === '') {
+      updateData.faqs = null;
+    }
+
     const profile = await db.businessProfile.update({
       where: { id },
-      data: {
-        ...data,
-        products: data.products && typeof data.products !== 'string' ? JSON.stringify(data.products) : data.products,
-        marketingGoals: data.marketingGoals && typeof data.marketingGoals !== 'string' ? JSON.stringify(data.marketingGoals) : data.marketingGoals,
-        offers: data.offers ? (typeof data.offers === 'string' ? data.offers : JSON.stringify(data.offers)) : null,
-        faqs: data.faqs ? (typeof data.faqs === 'string' ? data.faqs : JSON.stringify(data.faqs)) : null,
-      },
+      data: updateData,
     });
 
     return NextResponse.json({ profile });

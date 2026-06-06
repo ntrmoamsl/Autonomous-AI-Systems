@@ -24,11 +24,14 @@ model BusinessProfile {
   brandColors     String?  // JSON string of brand colors
   additionalInfo  String?  // Any extra info
   isActive        Boolean  @default(true)
+  agentMode       String   @default("manual") // manual, semi-auto, fully-autonomous
+  imageModel      String   @default("gpt-image-2") // gpt-image-2 or grok-imagine
   posts           ContentPost[]
   ideas           ContentIdea[]
   schedules       ScheduleConfig[]
   replies         SmartReply[]
   analytics       AnalyticsSnapshot[]
+  agentLogs       AgentLog[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
@@ -45,7 +48,7 @@ model ContentPost {
   imageUrl        String?  // Generated image URL
   imageData       String?  // Base64 image data
   videoUrl        String?  // Generated video URL
-  videoTaskId     String?  // Async video task ID
+  videoTaskId     String?  // Async video/image task ID
   platform        String   @default("facebook") // facebook, instagram, twitter, etc.
   status          String   @default("draft") // draft, scheduled, published, failed
   scheduledAt     DateTime?
@@ -59,6 +62,9 @@ model ContentPost {
   likeCount       Int?
   commentCount    Int?
   shareCount      Int?
+  imagePrompt     String?  // The prompt used for image generation
+  decisionReason  String?  // Why the agent decided to create this post
+  isAutonomous    Boolean  @default(false) // Was this created autonomously?
   business        BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -70,6 +76,7 @@ model ContentIdea {
   businessId  String
   idea        String   // The core idea/concept
   category    String   // educational, marketing, storytelling, etc.
+  angle       String?  // The marketing angle used
   used        Boolean  @default(false)
   usedAt      DateTime?
   business    BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -100,6 +107,7 @@ model SmartReply {
   originalMsg String   // The user's comment/message
   replyText   String   // The AI-generated reply
   intentType  String?  // question, purchase, complaint, engagement
+  isAutonomous Boolean @default(false) // Was this reply sent autonomously?
   sentAt      DateTime?
   business    BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
   createdAt   DateTime @default(now())
@@ -120,4 +128,20 @@ model AnalyticsSnapshot {
   bestPostTime    String?
   business        BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
   createdAt       DateTime @default(now())
+}
+
+// Agent Decision Log - Tracks all autonomous decisions
+model AgentLog {
+  id            String   @id @default(cuid())
+  businessId    String
+  action        String   // generate_content, generate_image, publish_post, analyze_performance, reply_comment, schedule_post
+  decision      String   // The decision made by the agent
+  reasoning     String   // Why the agent made this decision
+  result        String?  // JSON string of the action result
+  status        String   @default("pending") // pending, executing, completed, failed
+  relatedPostId String?  // Related ContentPost ID if applicable
+  tokensUsed    Int?
+  executionTime Int?     // In milliseconds
+  business      BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
 }
