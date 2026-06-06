@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { callClaudeOpus } from '@/lib/ai';
+import { parsePreferredTimes, getNextPreferredTimes } from '@/lib/schedule-utils';
 
 // POST - Generate content using Claude Opus 4.8 (Executive Brain)
 // Every post MUST have media (image or video) with text overlay
@@ -142,74 +143,33 @@ ${usedIdeas}` : ''}
     }
 
     // Save the generated content to database
-    // KEY BEHAVIOR: Never save as draft! Schedule to nearest preferred time.
-    // Get the nearest scheduled time from the active schedule config
-    let nearestScheduledTime: Date | null = null;
+    // KEY BEHAVIOR: Never save as draft! Schedule to nearest preferred times.
+    // Each post gets its own scheduled time, distributed across the user's
+    // preferred publishing times.
+    // Example: 2 AM + preferred [3ص, 4ص, 5ص] + 3 posts → 3AM, 4AM, 5AM
+    let scheduledTimes: Date[] = [];
     const schedule = await db.scheduleConfig.findFirst({
       where: { businessId, isActive: true },
     });
     
     if (schedule?.preferredTimes) {
-      // Parse preferred times (supports Arabic 12h format like "9ص, 6م" or 24h like "09:00, 18:00")
-      let preferredTimesRaw = schedule.preferredTimes || '';
-      try {
-        const parsed = JSON.parse(preferredTimesRaw);
-        if (Array.isArray(parsed)) {
-          preferredTimesRaw = parsed.join(', ');
-        } else if (typeof parsed === 'string') {
-          preferredTimesRaw = parsed;
-        }
-      } catch {
-        // Not JSON, use as-is
-      }
-      const preferredTimes = preferredTimesRaw.split(',').map(t => t.trim()).filter(Boolean);
-      
-      const now = new Date();
-      const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
-      
-      // Parse all preferred times into minutes from midnight
-      const preferredMinutes: number[] = [];
-      for (const timeStr of preferredTimes) {
-        const arabicMatch = timeStr.match(/^(\d{1,2})(ص|م)$/);
-        if (arabicMatch) {
-          let hour = parseInt(arabicMatch[1]);
-          if (arabicMatch[2] === 'ص') {
-            if (hour === 12) hour = 0;
-          } else {
-            if (hour !== 12) hour += 12;
-          }
-          preferredMinutes.push(hour * 60);
-        } else {
-          const timeMatch = timeStr.match(/^(\d{1,2}):(\d{2})$/);
-          if (timeMatch) {
-            preferredMinutes.push(parseInt(timeMatch[1]) * 60 + parseInt(timeMatch[2]));
-          }
-        }
-      }
-      
-      preferredMinutes.sort((a, b) => a - b);
-      
-      // Find the nearest future time
-      for (const mins of preferredMinutes) {
-        if (mins > currentTotalMinutes) {
-          nearestScheduledTime = new Date(now);
-          nearestScheduledTime.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
-          break;
-        }
-      }
-      
-      // If no future time today, use the first preferred time tomorrow
-      if (!nearestScheduledTime && preferredMinutes.length > 0) {
-        nearestScheduledTime = new Date(now);
-        nearestScheduledTime.setDate(nearestScheduledTime.getDate() + 1);
-        nearestScheduledTime.setHours(Math.floor(preferredMinutes[0] / 60), preferredMinutes[0] % 60, 0, 0);
+      const preferredSlots = parsePreferredTimes(schedule.preferredTimes);
+      if (preferredSlots.length > 0) {
+        const now = new Date();
+        scheduledTimes = getNextPreferredTimes(
+          preferredSlots,
+          now,
+          generatedPosts.posts.length
+        );
       }
     }
     
-    const postStatus = nearestScheduledTime ? 'scheduled' : 'draft';
+    const postStatus = scheduledTimes.length > 0 ? 'scheduled' : 'draft';
 
     const savedPosts = [];
-    for (const post of generatedPosts.posts) {
+    for (let i = 0; i < generatedPosts.posts.length; i++) {
+      const post = generatedPosts.posts[i];
+      const scheduledAt = scheduledTimes[i] || null;
       // Save content idea to prevent repetition
       await db.contentIdea.create({
         data: {
@@ -232,7 +192,7 @@ ${usedIdeas}` : ''}
           hashtags: Array.isArray(post.hashtags) ? post.hashtags.join(',') : (post.hashtags || ''),
           cta: post.cta || null,
           status: postStatus,
-          scheduledAt: nearestScheduledTime,
+          scheduledAt,
           aiModel: 'claude-opus-4-8',
           generationPrompt: userPrompt,
           imagePrompt: mediaType === 'image' ? (post.imagePrompt || null) : null,
@@ -251,14 +211,15 @@ ${usedIdeas}` : ''}
       });
     }
 
-    const scheduleNote = nearestScheduledTime
-      ? ` — مجدول للنشر في ${nearestScheduledTime.toLocaleString('ar-SA', { hour: '2-digit', minute: '2-digit' })}`
+    const scheduleNote = scheduledTimes.length > 0
+      ? ` — مجدول للنشر: ${scheduledTimes.map((t, i) => `المنشور ${i + 1} في ${t.toLocaleString('ar-SA', { hour: '2-digit', minute: '2-digit' })}`).join('، ')}`
       : '';
 
     return NextResponse.json({
       posts: savedPosts,
       rawResponse: responseText,
-      scheduledAt: nearestScheduledTime?.toISOString() || null,
+      scheduledAt: scheduledTimes[0]?.toISOString() || null,
+      scheduledTimes: scheduledTimes.map(t => t.toISOString()),
       message: `تم إنشاء ${savedPosts.length} منشورات${scheduleNote}`,
     });
   } catch (error) {

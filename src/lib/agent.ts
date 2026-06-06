@@ -14,6 +14,7 @@ import { db } from '@/lib/db';
 import { callClaudeOpus, createImageTask, createVideoTask, getKieTaskDetail } from '@/lib/ai';
 import { getFacebookConfig } from '@/lib/config';
 import { addTextOverlay, createVideoPromptWithText } from '@/lib/text-overlay';
+import { parsePreferredTimes, getNextPreferredTimes, parseArabicTime as sharedParseArabicTime } from '@/lib/schedule-utils';
 
 // ============================================================
 // Types
@@ -348,15 +349,33 @@ ${usedIdeas ? `الأفكار المستخدمة سابقًا (لا تكررها
 
   // ═══════════════════════════════════════════════════════════
   // KEY BEHAVIOR: Never save as draft!
-  // After generating content, immediately schedule it to the
-  // nearest preferred time from the schedule config.
-  // This ensures posts are always ready for auto-publishing.
+  // After generating content, immediately schedule each post to
+  // the next available preferred time.
+  // Example: 2 AM + preferred [3ص, 4ص, 5ص] + 3 posts → 3AM, 4AM, 5AM
   // ═══════════════════════════════════════════════════════════
-  const nearestTime = await getNearestScheduledTime(businessId);
-  const postStatus = nearestTime ? 'scheduled' : 'draft'; // Fallback to draft only if no schedule
+  const schedule = await db.scheduleConfig.findFirst({
+    where: { businessId, isActive: true },
+  });
+  
+  let scheduledTimes: Date[] = [];
+  if (schedule?.preferredTimes) {
+    const preferredSlots = parsePreferredTimes(schedule.preferredTimes);
+    if (preferredSlots.length > 0) {
+      const now = new Date();
+      scheduledTimes = getNextPreferredTimes(
+        preferredSlots,
+        now,
+        generatedPosts.posts.length
+      );
+    }
+  }
+
+  const postStatus = scheduledTimes.length > 0 ? 'scheduled' : 'draft';
 
   let lastPostId: string | undefined;
-  for (const post of generatedPosts.posts) {
+  for (let i = 0; i < generatedPosts.posts.length; i++) {
+    const post = generatedPosts.posts[i];
+    const scheduledAt = scheduledTimes[i] || null;
     await db.contentIdea.create({
       data: {
         businessId,
@@ -379,7 +398,7 @@ ${usedIdeas ? `الأفكار المستخدمة سابقًا (لا تكررها
         hashtags: Array.isArray(post.hashtags) ? post.hashtags.join(',') : (post.hashtags || ''),
         cta: post.cta || null,
         status: postStatus,
-        scheduledAt: nearestTime,
+        scheduledAt,
         aiModel: 'claude-opus-4-8',
         generationPrompt: userPrompt,
         imagePrompt: mediaType === 'image' ? (post.imagePrompt || null) : null,
@@ -394,8 +413,8 @@ ${usedIdeas ? `الأفكار المستخدمة سابقًا (لا تكررها
     lastPostId = saved.id;
   }
 
-  const scheduleNote = nearestTime 
-    ? ` ومجدول للنشر في ${nearestTime.toLocaleString('ar-SA', { hour: '2-digit', minute: '2-digit' })}` 
+  const scheduleNote = scheduledTimes.length > 0
+    ? ` ومجدول للنشر: ${scheduledTimes.map((t, i) => `المنشور ${i + 1} في ${t.toLocaleString('ar-SA', { hour: '2-digit', minute: '2-digit' })}`).join('، ')}`
     : '';
 
   return { 
@@ -843,22 +862,32 @@ async function executeSchedulePost(businessId: string, parameters: Record<string
       orderBy: { createdAt: 'asc' },
     });
     if (!unscheduledPost) return { success: false, details: 'No unscheduled posts to schedule' };
-    return executeSchedulePostById(unscheduledPost.id, scheduledAt);
+    return executeSchedulePostById(unscheduledPost.id, scheduledAt, businessId);
   }
 
-  return executeSchedulePostById(postId, scheduledAt);
+  return executeSchedulePostById(postId, scheduledAt, businessId);
 }
 
-async function executeSchedulePostById(postId: string, scheduledAt?: string): Promise<{ success: boolean; details: string; postId?: string }> {
+async function executeSchedulePostById(postId: string, scheduledAt?: string, businessId?: string): Promise<{ success: boolean; details: string; postId?: string }> {
+  let finalScheduledAt: Date | null = scheduledAt ? new Date(scheduledAt) : null;
+  
+  // If no time provided, find the nearest preferred time from schedule config
+  if (!finalScheduledAt && businessId) {
+    finalScheduledAt = await getNearestScheduledTime(businessId);
+  }
+  
   await db.contentPost.update({
     where: { id: postId },
     data: {
       status: 'scheduled',
-      scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
+      scheduledAt: finalScheduledAt,
     },
   });
 
-  return { success: true, details: `Post scheduled for ${scheduledAt || 'next available time'}`, postId };
+  const timeNote = finalScheduledAt 
+    ? finalScheduledAt.toLocaleString('ar-SA', { hour: '2-digit', minute: '2-digit' })
+    : 'بدون وقت محدد';
+  return { success: true, details: `تم جدولة المنشور لـ ${timeNote}`, postId };
 }
 
 // ============================================================
@@ -1476,34 +1505,9 @@ async function shouldAutoPublishAfterGeneration(businessId: string): Promise<{
   return { shouldPublish: false, matchedTime: null, minutesLate: 0 };
 }
 
-/**
- * Parses Arabic 12-hour time format to 24-hour format.
- * Supports: "9ص", "10م", "12ص", "1م", "09:00", "18:00"
- */
-function parseArabicTime(timeStr: string): { hour: number; minute: number } | null {
-  // Try Arabic format first (e.g., "9ص", "10م", "12ص", "1م")
-  const arabicMatch = timeStr.match(/^(\d{1,2})(ص|م)$/);
-  if (arabicMatch) {
-    let hour = parseInt(arabicMatch[1]);
-    const period = arabicMatch[2];
-    
-    if (period === 'ص') { // AM
-      if (hour === 12) hour = 0; // 12ص = midnight
-    } else { // PM
-      if (hour !== 12) hour += 12; // 1م=13, 12م=12
-    }
-    
-    return { hour, minute: 0 };
-  }
-
-  // Try 24-hour format (e.g., "09:00", "18:00")
-  const timeMatch = timeStr.match(/^(\d{1,2}):(\d{2})$/);
-  if (timeMatch) {
-    return { hour: parseInt(timeMatch[1]), minute: parseInt(timeMatch[2]) };
-  }
-
-  return null;
-}
+// parseArabicTime is now imported from schedule-utils as sharedParseArabicTime
+// Local alias for backward compatibility with existing code
+const parseArabicTime = sharedParseArabicTime;
 
 /**
  * Auto-publishes all scheduled/draft posts when it's a preferred publishing time.
@@ -1579,68 +1583,10 @@ async function getNearestScheduledTime(businessId: string): Promise<Date | null>
     return null;
   }
 
-  // Parse preferred times
-  let preferredTimesRaw = schedule.preferredTimes || '';
-  try {
-    const parsed = JSON.parse(preferredTimesRaw);
-    if (Array.isArray(parsed)) {
-      preferredTimesRaw = parsed.join(', ');
-    } else if (typeof parsed === 'string') {
-      preferredTimesRaw = parsed;
-    }
-  } catch {
-    // Not JSON, use as-is
-  }
-  const preferredTimes = preferredTimesRaw.split(',').map(t => t.trim()).filter(Boolean);
-
-  if (preferredTimes.length === 0) return null;
+  const preferredSlots = parsePreferredTimes(schedule.preferredTimes);
+  if (preferredSlots.length === 0) return null;
 
   const now = new Date();
-  const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
-
-  // Parse all preferred times into minutes from midnight
-  const preferredMinutes: { totalMinutes: number; label: string }[] = [];
-  for (const timeStr of preferredTimes) {
-    const parsed = parseArabicTime(timeStr);
-    if (parsed) {
-      preferredMinutes.push({
-        totalMinutes: parsed.hour * 60 + parsed.minute,
-        label: timeStr,
-      });
-    }
-  }
-
-  if (preferredMinutes.length === 0) return null;
-
-  // Sort by minutes from midnight
-  preferredMinutes.sort((a, b) => a.totalMinutes - b.totalMinutes);
-
-  // Find the nearest future time
-  let nearestDate: Date | null = null;
-  let smallestDiff = Infinity;
-
-  for (const pref of preferredMinutes) {
-    const diff = pref.totalMinutes - currentTotalMinutes;
-    
-    if (diff > 0) {
-      // This preferred time is still ahead today
-      const candidate = new Date(now);
-      candidate.setHours(Math.floor(pref.totalMinutes / 60), pref.totalMinutes % 60, 0, 0);
-      
-      if (diff < smallestDiff) {
-        smallestDiff = diff;
-        nearestDate = candidate;
-      }
-    }
-  }
-
-  // If no future time today, use the first preferred time tomorrow
-  if (!nearestDate && preferredMinutes.length > 0) {
-    const firstTime = preferredMinutes[0];
-    nearestDate = new Date(now);
-    nearestDate.setDate(nearestDate.getDate() + 1);
-    nearestDate.setHours(Math.floor(firstTime.totalMinutes / 60), firstTime.totalMinutes % 60, 0, 0);
-  }
-
-  return nearestDate;
+  const times = getNextPreferredTimes(preferredSlots, now, 1);
+  return times.length > 0 ? times[0] : null;
 }
