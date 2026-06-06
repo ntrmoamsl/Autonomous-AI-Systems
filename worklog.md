@@ -562,3 +562,38 @@ Stage Summary:
 - skipSaveRef prevents debounced save from firing during initial load
 - 3 new settings now persist: contentFilter, agentMode, imageModel
 - All settings survive page reloads correctly
+
+---
+Task ID: 14
+Agent: Main Agent
+Task: Auto-schedule posts to nearest preferred time instead of saving as draft + enforce no-draft policy
+
+Work Log:
+- Updated /src/lib/agent.ts:
+  - Added getNearestScheduledTime() helper function that calculates the nearest future preferred time from ScheduleConfig
+  - Supports Arabic 12h format (9ص, 6م) and 24h format (09:00, 18:00)
+  - If no future time today, uses first preferred time tomorrow
+  - Updated executeGenerateContent() to save posts as 'scheduled' with nearest preferred time (NOT 'draft')
+  - Fallback to 'draft' only if no schedule config exists
+  - Updated agent rules in buildAgentContext() to reflect no-draft policy (18 rules now)
+  - Updated content generation prompt rules (16 rules now) with auto-scheduling rules
+  - Updated runAgentCycle() decision prompt to remove "publish drafts" instruction
+  - Updated executePublishPost() to look for both 'scheduled' and 'draft' posts
+  - Updated executeSchedulePost() to look for unscheduled (draft) posts only
+- Updated /src/app/api/content/generate/route.ts:
+  - Added nearest scheduled time calculation (same logic as agent.ts)
+  - Posts now saved as 'scheduled' with scheduledAt = nearest preferred time
+  - Returns scheduledAt and message with schedule info in response
+- Updated /src/app/page.tsx:
+  - handleGenerateContent toast now shows scheduled time info
+  - "مجدول للنشر في HH:MM" displayed when content is generated with schedule
+- All lint checks pass with zero errors
+- Pushed to GitHub: https://github.com/ntrmoamsl/Autonomous-AI-Systems
+
+Stage Summary:
+- KEY BEHAVIOR CHANGE: Posts are NEVER saved as draft anymore
+- After generating content, the system automatically schedules it to the nearest preferred time from the user's calendar settings
+- Media generation (image/video) happens immediately after content creation
+- The agent follows the schedule saved in the database for auto-publishing
+- Flow: Generate → Schedule to nearest preferred time → Generate media → Auto-publish at preferred time
+- This implements the user's request: "بعد ما يخلص قرار ويعمل المنشور لا يحفظة فى مسودة لازم هو يجدوله لاقرب وقت تم تحديدة من قبلى"
