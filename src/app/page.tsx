@@ -1204,6 +1204,40 @@ export default function Home() {
                                   </div>
                                 </div>
                               </div>
+
+                              {/* Grace Period Explanation */}
+                              <div className="p-4 rounded-xl bg-gradient-to-r from-rose-500/5 via-amber-500/5 to-emerald-500/5 border border-amber-500/20 space-y-3">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <Shield className="w-4 h-4 text-amber-400" />
+                                  <span className="text-sm font-bold text-amber-300">فترة السماح — لن يفوتك وقت النشر! ⏰</span>
+                                </div>
+                                <p className="text-[11px] text-slate-400 leading-relaxed">
+                                  ماذا يحدث إذا كان الوكيل <span className="text-violet-300 font-bold">يفكر ويولد محتوى</span> عندما حان وقت النشر المفضل؟ <span className="text-emerald-400 font-bold">لا تقلق!</span>
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                  <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/15 text-center">
+                                    <div className="text-lg mb-1">🔴</div>
+                                    <p className="text-[10px] font-bold text-rose-300">بدون فترة سماح</p>
+                                    <p className="text-[9px] text-slate-500">يتجاهل النشر لأنه مشغول بالتفكير</p>
+                                  </div>
+                                  <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/15 text-center">
+                                    <div className="text-lg mb-1">🟢</div>
+                                    <p className="text-[10px] font-bold text-emerald-300">مع فترة السماح</p>
+                                    <p className="text-[9px] text-slate-500">ينشر تلقائياً خلال 30 دقيقة من الوقت المفضل</p>
+                                  </div>
+                                  <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/15 text-center">
+                                    <div className="text-lg mb-1">⚡</div>
+                                    <p className="text-[10px] font-bold text-amber-300">النتيجة</p>
+                                    <p className="text-[9px] text-slate-500">مجرد دقائق تأخير وليس ساعات!</p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 p-2 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                                  <p className="text-[10px] text-emerald-300">
+                                    إذا جاء وقت النشر (مثلاً 10م) والوكيل كان يفكر، يُكمل التفكير ثم <span className="font-bold">ينشر فوراً</span> — حتى لو الساعة صارت 10:05 أو 10:10
+                                  </p>
+                                </div>
+                              </div>
                             </div>
                           )}
                         </CardContent>
@@ -2071,6 +2105,51 @@ export default function Home() {
                                 <span className={`text-[10px] font-bold ${autoGenerate ? 'text-emerald-300' : 'text-slate-500'}`}>
                                   توليد تلقائي {autoGenerate ? '✓ نشط' : '✗ متوقف'}
                                 </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Step 4: Grace Period - What happens if agent is busy at publish time? */}
+                          <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500/8 to-emerald-500/8 border border-amber-500/20 space-y-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-500/30 to-emerald-500/30 flex items-center justify-center">
+                                <Shield className="w-4 h-4 text-amber-400" />
+                              </div>
+                              <span className="text-sm font-bold text-amber-300">خطوة 4: فترة السماح ⏰🛡️</span>
+                            </div>
+                            <p className="text-xs text-slate-400 leading-relaxed pr-9">
+                              لو الوقت المفضل جاء والوكيل <span className="text-violet-300 font-bold">كان يفكر أو يولد محتوى</span>، مش هيتجاهل النشر!
+                              الوكيل عنده <span className="text-amber-300 font-bold">فترة سماح 30 دقيقة</span> — يعني حتى لو المحتوى جاهز بعد 5 أو 10 دقائق من الوقت المحدد، <span className="text-emerald-300 font-bold">هينشر تلقائياً!</span>
+                            </p>
+                            <div className="space-y-2 pr-9">
+                              {/* Timeline example */}
+                              <div className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-800/60 border border-white/5">
+                                <div className="flex flex-col items-center gap-0.5 text-center min-w-[50px]">
+                                  <span className="text-[10px] font-bold text-amber-300">10:00م</span>
+                                  <span className="text-[8px] text-slate-500">وقت النشر</span>
+                                </div>
+                                <div className="flex-1 h-0.5 bg-gradient-to-r from-amber-500 to-violet-500"></div>
+                                <div className="flex flex-col items-center gap-0.5 text-center min-w-[50px]">
+                                  <span className="text-[10px] font-bold text-violet-300">10:05م</span>
+                                  <span className="text-[8px] text-slate-500">انتهى التوليد</span>
+                                </div>
+                                <div className="flex-1 h-0.5 bg-gradient-to-r from-violet-500 to-emerald-500"></div>
+                                <div className="flex flex-col items-center gap-0.5 text-center min-w-[50px]">
+                                  <span className="text-[10px] font-bold text-emerald-300">10:05م</span>
+                                  <span className="text-[8px] text-emerald-400">✓ نُشر!</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                                <p className="text-[10px] text-emerald-300">
+                                  مجرد دقائق وليس ساعات — النشر يتم <span className="font-bold">فوراً</span> بعد تجهيز المحتوى!
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <AlertCircle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                                <p className="text-[10px] text-amber-300">
+                                  فترة السماح: 30 دقيقة من الوقت المفضل — كفاية لو الوكيل كان يولد صورة أو فيديو
+                                </p>
                               </div>
                             </div>
                           </div>

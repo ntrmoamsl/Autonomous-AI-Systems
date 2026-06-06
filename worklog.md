@@ -453,3 +453,48 @@ Stage Summary:
 - Only posts with ready media (image/video) are auto-published
 - Claude is made aware of the publish-time situation for better decisions
 - This solves the user's concern: "What if the agent is thinking when publish time arrives?"
+
+---
+Task ID: 12
+Agent: Main Agent
+Task: Implement Grace Period system - auto-publish even if a few minutes late when agent was busy thinking/generating at preferred time
+
+Work Log:
+- Updated /src/lib/agent.ts with comprehensive grace period system:
+  - Added DEFAULT_GRACE_PERIOD_MINUTES = 30 constant
+  - Expanded checkPublishTimeWindow() with two-window system:
+    - EXACT window (±5 min): If ready posts exist → publish immediately
+    - GRACE PERIOD (±30 min): If content generated during this window → auto-publish
+  - New return fields: isInGracePeriod, minutesSincePreferred, gracePeriodMinutes
+  - Added shouldAutoPublishAfterGeneration() function:
+    - Called AFTER content + media generation completes
+    - Checks if current time is within grace period of a preferred time
+    - Returns shouldPublish, matchedTime, minutesLate
+  - Added grace period auto-publish after generate_content decision:
+    - If media is ready and within grace period → auto-publish immediately
+    - If media still processing → log that it will be published when ready
+    - Logs reason: "grace_period_auto_publish" with minutes late
+  - Added grace period auto-publish after executeCheckPendingTasks:
+    - If media just became ready and still in grace period → auto-publish
+    - Handles the case where image/video was processing when preferred time arrived
+  - Updated publishTimeNote context for Claude:
+    - 🚨 URGENT note when in grace period with no ready posts
+    - 💡 Info note when in grace period with some ready posts
+- Updated /src/app/page.tsx with visual grace period explanations:
+  - Dashboard: Added "فترة السماح — لن يفوتك وقت النشر!" card with:
+    - 3 comparison cards: without grace (red), with grace (green), result (amber)
+    - Green checkmark note: publishes even if 5-10 minutes late
+    - Shield icon for protection symbolism
+  - Calendar: Added Step 4 "فترة السماح ⏰🛡️" in scheduling guide with:
+    - Visual timeline: 10:00م (publish time) → 10:05م (generation done) → 10:05م (published!)
+    - Green checkmark: "مجرد دقائق وليس ساعات"
+    - Amber info: "فترة السماح: 30 دقيقة من الوقت المفضل"
+- All lint checks pass with zero errors
+- Verified with Agent Browser + VLM: grace period card visible in Calendar tab
+
+Stage Summary:
+- NEW: Grace Period system ensures posts are published even if agent was busy at preferred time
+- If agent was thinking/generating when preferred time arrived, and content is ready within 30 minutes, it auto-publishes
+- Two trigger points: after content generation completes, and after pending media becomes ready
+- Visual explanations added in both Dashboard and Calendar tabs
+- User's concern fully addressed: "مجرد دقائق وليس ساعات — النشر يتم فوراً بعد تجهيز المحتوى"

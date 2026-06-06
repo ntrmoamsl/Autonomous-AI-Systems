@@ -861,15 +861,67 @@ export async function runAgentCycle(businessId: string): Promise<AgentRunResult>
     // Step 1: Check for pending media tasks first
     const pendingCheck = await executeCheckPendingTasks(businessId);
 
+    // Step 1.5: GRACE PERIOD CHECK after pending tasks complete
+    // If media just became ready and we're in a grace period, auto-publish!
+    const graceAfterMedia = await shouldAutoPublishAfterGeneration(businessId);
+    if (graceAfterMedia.shouldPublish) {
+      // Find draft posts with ready media that haven't been published yet
+      const readyPosts = await db.contentPost.findMany({
+        where: {
+          businessId,
+          status: { in: ['draft', 'scheduled'] },
+          videoTaskId: null, // media processing done
+        },
+        orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
+        take: 3,
+      });
+
+      for (const post of readyPosts) {
+        const hasMediaReady = post.imageData || post.imageUrl || post.videoUrl;
+        if (hasMediaReady) {
+          const publishResult = await executePublishPostById(post.id);
+          results.push({
+            action: 'publish_post',
+            success: publishResult.success,
+            details: publishResult.success
+              ? `[نشر تلقائي - فترة السماح بعد تجهيز الوسائط] نُشر بعد ${graceAfterMedia.minutesLate} دقيقة من الوقت المفضل (${graceAfterMedia.matchedTime})`
+              : `[فشل النشر التلقائي] ${publishResult.details}`,
+            postId: post.id,
+            executionTime: Date.now() - startTime,
+          });
+
+          await db.agentLog.create({
+            data: {
+              businessId,
+              action: 'publish_post',
+              decision: JSON.stringify({
+                postId: post.id,
+                autoPublish: true,
+                reason: 'grace_period_media_ready',
+                matchedTime: graceAfterMedia.matchedTime,
+                minutesLate: graceAfterMedia.minutesLate,
+              }),
+              reasoning: `⏰ نشر تلقائي بعد تجهيز الوسائط — ضمن فترة السماح (${graceAfterMedia.minutesLate} دقيقة من ${graceAfterMedia.matchedTime})`,
+              status: publishResult.success ? 'completed' : 'failed',
+              result: JSON.stringify(publishResult),
+              relatedPostId: post.id,
+            },
+          });
+        }
+      }
+    }
+
     // Step 2: Build context for Claude
     const context = await buildAgentContext(businessId);
 
     // Add publish-time awareness to the context
     const publishTimeNote = publishWindow.isPublishTime
       ? `\n\n⚠️ تنبيه مهم: الوقت الحالي هو وقت النشر المفضل (${publishWindow.matchedTime})! تم بالفعل نشر المنشورات الجاهزة تلقائياً. الآن يجب أن تولد محتوى جديد للوقت المفضل القادم.`
-      : publishWindow.matchedTime && publishWindow.scheduledPostsReady === 0
-        ? `\n\n💡 ملاحظة: الوقت الحالي قريب من وقت النشر المفضل (${publishWindow.matchedTime}) لكن لا توجد منشورات جاهزة. يجب توليد محتوى بالسرعة الممكنة.`
-        : '';
+      : publishWindow.isInGracePeriod && publishWindow.scheduledPostsReady === 0
+        ? `\n\n🚨 تنبيه عاجل: نحن ضمن فترة السماح لوقت النشر المفضل (${publishWindow.matchedTime}) — مرت ${publishWindow.minutesSincePreferred} دقيقة من الوقت المحدد. لا توجد منشورات جاهزة! يجب توليد محتوى بالسرعة القصوى وسيتم نشره تلقائياً لأنه ضمن فترة السماح (${publishWindow.gracePeriodMinutes} دقيقة).`
+        : publishWindow.isInGracePeriod && publishWindow.scheduledPostsReady > 0
+          ? `\n\n💡 ملاحظة: نحن ضمن فترة السماح لوقت النشر المفضل (${publishWindow.matchedTime}). يمكن نشر المنشورات الجاهزة أو توليد محتوى جديد وسيتم نشره تلقائياً.`
+          : '';
 
     // Step 3: Ask Claude what to do
     const agentPrompt = `${publishTimeNote}
@@ -985,6 +1037,69 @@ export async function runAgentCycle(businessId: string): Promise<AgentRunResult>
                     details: imgResult.details,
                     postId: result.postId,
                     executionTime: Date.now() - actionStart,
+                  });
+                }
+              }
+
+              // ═══════════════════════════════════════════════════════════
+              // GRACE PERIOD AUTO-PUBLISH: After content + media are generated,
+              // check if we're within the grace period of a preferred time.
+              // If yes, auto-publish even if a few minutes late!
+              // ═══════════════════════════════════════════════════════════
+              const graceCheck = await shouldAutoPublishAfterGeneration(businessId);
+              if (graceCheck.shouldPublish) {
+                // Check if media is ready (not still processing)
+                const freshPost = await db.contentPost.findUnique({ where: { id: result.postId } });
+                const hasMediaReady = freshPost && (freshPost.imageData || freshPost.imageUrl || freshPost.videoUrl);
+                
+                if (hasMediaReady) {
+                  // Auto-publish: we're within grace period and media is ready!
+                  const publishResult = await executePublishPostById(result.postId);
+                  results.push({
+                    action: 'publish_post',
+                    success: publishResult.success,
+                    details: publishResult.success 
+                      ? `[نشر تلقائي - فترة السماح] نُشر بعد ${graceCheck.minutesLate} دقيقة من الوقت المفضل (${graceCheck.matchedTime}) — ضمن فترة السماح`
+                      : `[فشل النشر التلقائي] ${publishResult.details}`,
+                    postId: result.postId,
+                    executionTime: Date.now() - actionStart,
+                  });
+
+                  // Log the grace period auto-publish
+                  await db.agentLog.create({
+                    data: {
+                      businessId,
+                      action: 'publish_post',
+                      decision: JSON.stringify({ 
+                        postId: result.postId,
+                        autoPublish: true,
+                        reason: 'grace_period_auto_publish',
+                        matchedTime: graceCheck.matchedTime,
+                        minutesLate: graceCheck.minutesLate,
+                      }),
+                      reasoning: `⏰ نشر تلقائي ضمن فترة السماح — المحتوى جاهز بعد ${graceCheck.minutesLate} دقيقة من الوقت المفضل (${graceCheck.matchedTime}). مجرد دقائق وليس ساعات، لذلك نُشر فوراً!`,
+                      status: publishResult.success ? 'completed' : 'failed',
+                      result: JSON.stringify(publishResult),
+                      relatedPostId: result.postId,
+                    },
+                  });
+                } else {
+                  // Media still processing - log that we'll publish when ready
+                  await db.agentLog.create({
+                    data: {
+                      businessId,
+                      action: 'publish_post',
+                      decision: JSON.stringify({ 
+                        postId: result.postId,
+                        autoPublish: true,
+                        reason: 'grace_period_pending_media',
+                        matchedTime: graceCheck.matchedTime,
+                        minutesLate: graceCheck.minutesLate,
+                      }),
+                      reasoning: `⏰ فترة السماح نشطة (${graceCheck.matchedTime}) لكن الوسائط لا تزال قيد المعالجة. سيتم النشر تلقائياً عندما تصبح الوسائط جاهزة.`,
+                      status: 'executing',
+                      relatedPostId: result.postId,
+                    },
                   });
                 }
               }
@@ -1135,30 +1250,43 @@ export async function getAgentStatus(businessId: string): Promise<AgentStatus> {
 // Publish Time Checker - Smart scheduling awareness
 // ============================================================
 
+// Default grace period in minutes: if content is generated within this
+// many minutes of a preferred time, it's auto-published even if late.
+const DEFAULT_GRACE_PERIOD_MINUTES = 30;
+
 /**
  * Checks if the current time is within a preferred publishing time window.
- * Returns the matched time and how many minutes until the window closes.
+ * Returns the matched time, grace period status, and readiness info.
  * 
- * Logic: If current time is within ±5 minutes of a preferred time,
- * it's considered "publish time" and publishing gets priority.
+ * Two windows:
+ * 1. EXACT window (±5 min): If there are already ready posts → publish immediately
+ * 2. GRACE PERIOD (±30 min): If content is generated during this window → auto-publish
+ * 
+ * This means: even if the agent was thinking/generating when the preferred time arrived,
+ * and content is ready a few minutes late, it will still be published!
  */
 async function checkPublishTimeWindow(businessId: string): Promise<{
   isPublishTime: boolean;
+  isInGracePeriod: boolean;
   matchedTime: string | null;
   minutesRemaining: number;
+  minutesSincePreferred: number;
   scheduledPostsReady: number;
+  gracePeriodMinutes: number;
 }> {
   const schedule = await db.scheduleConfig.findFirst({
     where: { businessId, isActive: true },
   });
 
   if (!schedule || !schedule.preferredTimes || !schedule.autoPublish) {
-    return { isPublishTime: false, matchedTime: null, minutesRemaining: 0, scheduledPostsReady: 0 };
+    return { isPublishTime: false, isInGracePeriod: false, matchedTime: null, minutesRemaining: 0, minutesSincePreferred: 0, scheduledPostsReady: 0, gracePeriodMinutes: DEFAULT_GRACE_PERIOD_MINUTES };
   }
 
+  const gracePeriodMinutes = DEFAULT_GRACE_PERIOD_MINUTES;
   const now = new Date();
   const currentHour = now.getHours();
   const currentMinute = now.getMinutes();
+  const currentTotalMinutes = currentHour * 60 + currentMinute;
 
   // Parse preferred times (supports formats: "9ص", "6م", "09:00", "18:00", or JSON array)
   let preferredTimesRaw = schedule.preferredTimes || '';
@@ -1177,23 +1305,41 @@ async function checkPublishTimeWindow(businessId: string): Promise<{
   
   let matchedTime: string | null = null;
   let minutesRemaining = 0;
+  let minutesSincePreferred = 0;
+  let isInExactWindow = false;
+  let isInGrace = false;
 
   for (const timeStr of preferredTimes) {
     const parsed = parseArabicTime(timeStr);
     if (!parsed) continue;
 
-    const diffMinutes = (parsed.hour * 60 + parsed.minute) - (currentHour * 60 + currentMinute);
+    const preferredTotalMinutes = parsed.hour * 60 + parsed.minute;
+    const diffMinutes = preferredTotalMinutes - currentTotalMinutes;
+    // diffMinutes > 0 means preferred time is in the future
+    // diffMinutes < 0 means preferred time has passed
+    // diffMinutes = -3 means we're 3 minutes past the preferred time
     
-    // Within ±5 minutes of preferred time = publish window
+    // EXACT window: within ±5 minutes of preferred time
     if (diffMinutes >= -5 && diffMinutes <= 5) {
       matchedTime = timeStr;
-      minutesRemaining = 5 - diffMinutes; // How many minutes left in window
+      minutesRemaining = 5 + diffMinutes; // How many minutes left in exact window
+      minutesSincePreferred = -diffMinutes; // How many minutes since preferred time
+      isInExactWindow = true;
+      break;
+    }
+    
+    // GRACE PERIOD: within ±30 minutes of preferred time (but outside exact window)
+    if (diffMinutes >= -gracePeriodMinutes && diffMinutes <= gracePeriodMinutes) {
+      matchedTime = timeStr;
+      minutesRemaining = gracePeriodMinutes + diffMinutes;
+      minutesSincePreferred = -diffMinutes;
+      isInGrace = true;
       break;
     }
   }
 
   // Count scheduled posts that are ready to publish
-  const scheduledPostsReady = matchedTime
+  const scheduledPostsReady = (isInExactWindow || isInGrace)
     ? await db.contentPost.count({
         where: {
           businessId,
@@ -1203,11 +1349,73 @@ async function checkPublishTimeWindow(businessId: string): Promise<{
     : 0;
 
   return {
-    isPublishTime: !!matchedTime && scheduledPostsReady > 0,
+    isPublishTime: isInExactWindow && scheduledPostsReady > 0,
+    isInGracePeriod: isInGrace || (isInExactWindow && scheduledPostsReady === 0),
     matchedTime,
     minutesRemaining: Math.max(0, minutesRemaining),
+    minutesSincePreferred,
     scheduledPostsReady,
+    gracePeriodMinutes,
   };
+}
+
+/**
+ * Checks if a newly generated post should be auto-published
+ * because we're still within the grace period of a preferred time.
+ * Called AFTER content + media generation completes.
+ */
+async function shouldAutoPublishAfterGeneration(businessId: string): Promise<{
+  shouldPublish: boolean;
+  matchedTime: string | null;
+  minutesLate: number;
+}> {
+  const schedule = await db.scheduleConfig.findFirst({
+    where: { businessId, isActive: true },
+  });
+
+  if (!schedule || !schedule.preferredTimes || !schedule.autoPublish) {
+    return { shouldPublish: false, matchedTime: null, minutesLate: 0 };
+  }
+
+  const gracePeriodMinutes = DEFAULT_GRACE_PERIOD_MINUTES;
+  const now = new Date();
+  const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
+
+  // Parse preferred times
+  let preferredTimesRaw = schedule.preferredTimes || '';
+  try {
+    const parsed = JSON.parse(preferredTimesRaw);
+    if (Array.isArray(parsed)) {
+      preferredTimesRaw = parsed.join(', ');
+    } else if (typeof parsed === 'string') {
+      preferredTimesRaw = parsed;
+    }
+  } catch {
+    // Not JSON, use as-is
+  }
+  const preferredTimes = preferredTimesRaw.split(',').map(t => t.trim()).filter(Boolean);
+
+  for (const timeStr of preferredTimes) {
+    const parsed = parseArabicTime(timeStr);
+    if (!parsed) continue;
+
+    const preferredTotalMinutes = parsed.hour * 60 + parsed.minute;
+    // How many minutes PAST the preferred time are we?
+    // Positive = we're late, Negative = preferred time hasn't arrived yet
+    const minutesLate = currentTotalMinutes - preferredTotalMinutes;
+
+    // If we're between 0 and gracePeriodMinutes late, auto-publish!
+    // Also if we're up to 5 minutes early, auto-publish!
+    if (minutesLate >= -5 && minutesLate <= gracePeriodMinutes) {
+      return {
+        shouldPublish: true,
+        matchedTime: timeStr,
+        minutesLate: Math.max(0, minutesLate),
+      };
+    }
+  }
+
+  return { shouldPublish: false, matchedTime: null, minutesLate: 0 };
 }
 
 /**
