@@ -303,3 +303,36 @@ Stage Summary:
 - AI agent decides per post: image or video, then the appropriate model is used automatically
 - Text overlay works on both: Sharp for images, prompt embedding for videos
 - All UI properly reflects the dual-model architecture with clear labeling
+
+---
+Task ID: 8
+Agent: Main Agent
+Task: Update scheduling settings - 12-hour Arabic time buttons + green active toggles
+
+Work Log:
+- Replaced scheduleTimes string state with selectedTimes array state (default: ['9ص', '6م'])
+- Added TIME_OPTIONS constant: 24 Arabic 12-hour format times (12ص through 11ص, 12م through 11م)
+- Added toggleTime() function for selecting/deselecting times
+- Updated handleSaveSchedule() to use selectedTimes.join(', ') instead of scheduleTimes string
+- Replaced text input for preferred times with grid of clickable time buttons:
+  - 24 buttons in Arabic 12-hour format (ص = صباحاً/AM, م = مساءً/PM)
+  - Selected AM times show cyan highlight (bg-cyan-500/30, text-cyan-300)
+  - Selected PM times show amber highlight (bg-amber-500/30, text-amber-300)
+  - Unselected times show muted slate styling
+  - Counter showing "X مختار" (selected count)
+  - Summary line showing all selected times
+- Redesigned auto-publish and auto-generate toggles:
+  - Wrapped in styled card containers with border transitions
+  - When ACTIVE: green background (bg-emerald-500/15), green border (border-emerald-500/40), green glow shadow
+  - When ACTIVE: icons and labels turn emerald-400, "نشط" badge appears with pulse animation
+  - When INACTIVE: muted slate styling (bg-slate-700/30, border-white/5)
+  - Switch component gets data-[state=checked]:bg-emerald-500 for green knob
+- All lint checks pass with zero errors
+- Verified with Agent Browser + VLM: 24 time buttons render, toggles turn green when active
+
+Stage Summary:
+- Preferred times now uses 24 clickable Arabic 12-hour format buttons (12ص-11ص, 12م-11م)
+- AM times highlight in cyan, PM times highlight in amber when selected
+- Auto-publish and auto-generate toggles turn GREEN with glow when active
+- "نشط" (active) badge appears with pulse animation on active toggles
+- Much more intuitive UX for time selection compared to text input

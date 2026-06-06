@@ -273,7 +273,7 @@ export default function Home() {
 
   // Calendar state
   const [scheduleFreq, setScheduleFreq] = useState('daily');
-  const [scheduleTimes, setScheduleTimes] = useState('09:00, 18:00');
+  const [selectedTimes, setSelectedTimes] = useState<string[]>(['9ص', '6م']);
   const [autoPublish, setAutoPublish] = useState(false);
   const [autoGenerate, setAutoGenerate] = useState(false);
 
@@ -661,7 +661,7 @@ export default function Home() {
         body: JSON.stringify({
           businessId: business.id,
           frequency: scheduleFreq,
-          preferredTimes: scheduleTimes,
+          preferredTimes: selectedTimes.join(', '),
           autoPublish,
           autoGenerate,
         }),
@@ -671,6 +671,18 @@ export default function Home() {
       toast({ title: 'خطأ', description: 'فشل في حفظ الجدول', variant: 'destructive' });
     }
   };
+
+  const toggleTime = (time: string) => {
+    setSelectedTimes(prev =>
+      prev.includes(time) ? prev.filter(t => t !== time) : [...prev, time]
+    );
+  };
+
+  // 12-hour Arabic format time options
+  const TIME_OPTIONS = [
+    '12ص', '1ص', '2ص', '3ص', '4ص', '5ص', '6ص', '7ص', '8ص', '9ص', '10ص', '11ص',
+    '12م', '1م', '2م', '3م', '4م', '5م', '6م', '7م', '8م', '9م', '10م', '11م',
+  ];
 
   // ============================================================
   // Autonomous Agent Timer
@@ -1713,11 +1725,12 @@ export default function Home() {
                               <p className="text-slate-400 text-xs">حدد متى وكيف ينشر الوكيل المحتوى</p>
                             </div>
                           </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                          <div className="space-y-5 mb-4">
+                            {/* Frequency */}
                             <div>
-                              <Label className="text-xs text-slate-400 mb-1 block">التكرار</Label>
+                              <Label className="text-xs text-slate-400 mb-1.5 block">التكرار</Label>
                               <Select value={scheduleFreq} onValueChange={setScheduleFreq}>
-                                <SelectTrigger className="bg-slate-700/50 border-white/10 text-white h-9 text-sm">
+                                <SelectTrigger className="bg-slate-700/50 border-white/10 text-white h-9 text-sm w-full sm:w-48">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -1727,17 +1740,87 @@ export default function Home() {
                                 </SelectContent>
                               </Select>
                             </div>
+
+                            {/* Preferred Times - 12-hour Arabic format */}
                             <div>
-                              <Label className="text-xs text-slate-400 mb-1 block">الأوقات المفضلة</Label>
-                              <Input value={scheduleTimes} onChange={(e) => setScheduleTimes(e.target.value)} placeholder="09:00, 18:00" className="bg-slate-700/50 border-white/10 text-white placeholder:text-slate-500 h-9 text-sm" />
+                              <Label className="text-xs text-slate-400 mb-2 block">
+                                الأوقات المفضلة
+                                <span className="text-slate-500 mr-1">({selectedTimes.length} مختار)</span>
+                              </Label>
+                              <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-12 gap-1.5">
+                                {TIME_OPTIONS.map(time => {
+                                  const isSelected = selectedTimes.includes(time);
+                                  const isAM = time.endsWith('ص');
+                                  return (
+                                    <button
+                                      key={time}
+                                      onClick={() => toggleTime(time)}
+                                      className={`px-2 py-2 rounded-lg text-xs font-bold transition-all duration-200 border ${
+                                        isSelected
+                                          ? isAM
+                                            ? 'bg-cyan-500/30 border-cyan-500/50 text-cyan-300 shadow-lg shadow-cyan-500/10'
+                                            : 'bg-amber-500/30 border-amber-500/50 text-amber-300 shadow-lg shadow-amber-500/10'
+                                          : 'bg-slate-700/30 border-white/5 text-slate-500 hover:bg-slate-700/50 hover:text-slate-300 hover:border-white/10'
+                                      }`}
+                                    >
+                                      {time}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              {selectedTimes.length > 0 && (
+                                <p className="text-[10px] text-slate-500 mt-2">
+                                  الأوقات المختارة: {selectedTimes.join('، ')}
+                                </p>
+                              )}
                             </div>
-                            <div className="flex items-center gap-3">
-                              <Switch checked={autoPublish} onCheckedChange={setAutoPublish} />
-                              <Label className="text-sm text-slate-300">نشر تلقائي</Label>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <Switch checked={autoGenerate} onCheckedChange={setAutoGenerate} />
-                              <Label className="text-sm text-slate-300">توليد تلقائي</Label>
+
+                            {/* Auto Publish & Auto Generate Toggles */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div className={`flex items-center gap-3 p-3 rounded-xl border transition-all duration-300 ${
+                                autoPublish
+                                  ? 'bg-emerald-500/15 border-emerald-500/40 shadow-lg shadow-emerald-500/10'
+                                  : 'bg-slate-700/30 border-white/5'
+                              }`}>
+                                <Switch
+                                  checked={autoPublish}
+                                  onCheckedChange={setAutoPublish}
+                                  className={`${autoPublish ? 'data-[state=checked]:bg-emerald-500' : ''}`}
+                                />
+                                <div className="flex items-center gap-2 flex-1">
+                                  <Send className={`w-4 h-4 ${autoPublish ? 'text-emerald-400' : 'text-slate-400'}`} />
+                                  <Label className={`text-sm font-medium ${autoPublish ? 'text-emerald-400' : 'text-slate-300'}`}>
+                                    نشر تلقائي
+                                  </Label>
+                                </div>
+                                {autoPublish && (
+                                  <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px] px-1.5 py-0 animate-pulse">
+                                    نشط
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className={`flex items-center gap-3 p-3 rounded-xl border transition-all duration-300 ${
+                                autoGenerate
+                                  ? 'bg-emerald-500/15 border-emerald-500/40 shadow-lg shadow-emerald-500/10'
+                                  : 'bg-slate-700/30 border-white/5'
+                              }`}>
+                                <Switch
+                                  checked={autoGenerate}
+                                  onCheckedChange={setAutoGenerate}
+                                  className={`${autoGenerate ? 'data-[state=checked]:bg-emerald-500' : ''}`}
+                                />
+                                <div className="flex items-center gap-2 flex-1">
+                                  <Sparkles className={`w-4 h-4 ${autoGenerate ? 'text-emerald-400' : 'text-slate-400'}`} />
+                                  <Label className={`text-sm font-medium ${autoGenerate ? 'text-emerald-400' : 'text-slate-300'}`}>
+                                    توليد تلقائي
+                                  </Label>
+                                </div>
+                                {autoGenerate && (
+                                  <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px] px-1.5 py-0 animate-pulse">
+                                    نشط
+                                  </Badge>
+                                )}
+                              </div>
                             </div>
                           </div>
                           <Button onClick={handleSaveSchedule} className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white">
