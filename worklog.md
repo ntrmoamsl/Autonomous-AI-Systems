@@ -631,3 +631,32 @@ Stage Summary:
 - Fix: Use `GET /api/v1/jobs/recordInfo?taskId=xxx` instead
 - New API response format: `state` field for status, `resultJson` string for results containing `resultUrls` array
 - Image and video generation now works correctly with the updated API endpoint
+
+---
+Task ID: 2
+Agent: main
+Task: Implement smart scheduling - distribute posts across preferred times
+
+Work Log:
+- Created `/home/z/my-project/src/lib/schedule-utils.ts` with shared scheduling logic:
+  - `parseArabicTime()` - Parses Arabic 12h (ص/م) and 24h time formats
+  - `parsePreferredTimes()` - Parses preferredTimes string from DB into sorted slots
+  - `getNextPreferredTimes(slots, now, count)` - Core function that returns N future scheduled times
+  - `getNearestPreferredTime()` - Convenience wrapper for single post
+- Updated `/home/z/my-project/src/app/api/content/generate/route.ts`:
+  - Replaced single `nearestScheduledTime` with array `scheduledTimes`
+  - Each post now gets its own scheduled time from the distributed list
+  - Response includes `scheduledTimes` array and per-post schedule notes
+- Updated `/home/z/my-project/src/lib/agent.ts`:
+  - Content generation now distributes posts across different preferred times
+  - Replaced `getNearestScheduledTime` with `getNextPreferredTimes` for multi-post
+  - `executeSchedulePostById` now auto-finds nearest preferred time when none given
+  - Removed duplicate `parseArabicTime` function, uses shared version
+- Verified with Agent Browser: no errors, page loads correctly
+- Pushed to GitHub: https://github.com/ntrmoamsl/Autonomous-AI-Systems
+
+Stage Summary:
+- Key feature: When agent generates N posts at 2 AM with preferred times [3ص, 4ص, 5ص], they get scheduled to 3AM, 4AM, 5AM respectively
+- If more posts than available slots today, it cycles to next day
+- Posts are NEVER saved as draft - always scheduled to nearest preferred time
+- All scheduling logic centralized in shared `schedule-utils.ts` for consistency
