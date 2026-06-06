@@ -249,3 +249,57 @@ Stage Summary:
 - Both image and video generation are fully enabled - agent makes the choice
 - Content generation prompt now includes mediaType, textOverlay, videoPrompt in JSON schema
 - Database schema includes all new fields (mediaType, textOverlay, videoPrompt)
+
+---
+Task ID: 7
+Agent: Main Agent
+Task: Correct Grok Imagine from image to video generation - both models always active
+
+Work Log:
+- CRITICAL FIX: Grok Imagine is for VIDEO generation, not image generation
+- Updated /src/lib/ai.ts:
+  - Removed createGrokImageTask() function (was incorrectly using grok-imagine/text-to-image)
+  - Added createGrokVideoTask() function using grok-imagine/text-to-video model
+  - Added GrokVideoInput interface (prompt, aspectRatio, mode, duration, resolution, nsfwChecker)
+  - Added createVideoTask() unified video generation function
+  - createImageTask() now ALWAYS uses GPT Image 2 (no model parameter needed)
+  - GPT Image 2 = IMAGE generation (only model for images)
+  - Grok Imagine = VIDEO generation (only model for videos)
+- Updated /src/app/api/media/video/route.ts:
+  - Replaced kling-video/v1/standard/text-to-video with grok-imagine/text-to-video
+  - Uses createVideoTask() function with full Grok Imagine parameters
+  - Supports aspect_ratio (2:3, 3:2, 1:1, 16:9, 9:16), mode (fun/normal/spicy), duration (6-30s), resolution (480p/720p)
+  - Saves aiModel as 'grok-imagine-text-to-video'
+- Updated /src/app/api/media/image/route.ts:
+  - Removed Grok Imagine model option - always uses GPT Image 2
+  - Simplified createImageTask() call (no model parameter)
+  - Saves aiModel as 'gpt-image-2'
+- Updated /src/lib/agent.ts:
+  - Fixed import: added createVideoTask, removed callKieAI
+  - Fixed import: added addTextOverlay (was missing, causing runtime error)
+  - executeGenerateImage(): Always uses GPT Image 2, removed model parameter
+  - executeGenerateVideo(): Uses createVideoTask() with Grok Imagine instead of callKieAI with kling-video
+  - Removed business?.imageModel checks - image always uses GPT Image 2
+- Updated /src/app/page.tsx:
+  - Removed GROK_RATIOS constant (no longer needed for images)
+  - Removed imageModel and defaultImageModel state variables
+  - Removed model selector dropdowns from Training tab, Content tab, and Settings tab
+  - Replaced with informational displays showing both models are always active
+  - Dashboard: "نماذج الوسائط" showing "الصور: GPT Image-2" and "الفيديو: Grok Imagine"
+  - Training tab: Shows "صور: GPT Image 2" and "فيديو: Grok Imagine" with badges
+  - Content tab: "إعدادات الوسائط" section with both models listed + aspect ratio for images only
+  - Settings tab: Informational card showing both models with their roles
+  - handleGenerateImage(): Always sends model: 'gpt-image-2'
+  - aspectRatios always uses GPT_IMAGE2_RATIOS
+- Database schema unchanged (imageModel field kept but not user-selectable)
+- All lint checks pass with zero errors
+- Verified with Agent Browser: all tabs render correctly with updated model architecture
+
+Stage Summary:
+- Grok Imagine is now correctly used for VIDEO generation only (was incorrectly labeled as image model)
+- Both models are ALWAYS active simultaneously - no user selection needed
+- GPT Image 2 → Images (auto-decision by AI agent)
+- Grok Imagine Text-to-Video → Videos (auto-decision by AI agent)
+- AI agent decides per post: image or video, then the appropriate model is used automatically
+- Text overlay works on both: Sharp for images, prompt embedding for videos
+- All UI properly reflects the dual-model architecture with clear labeling

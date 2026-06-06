@@ -1,37 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { callKieAI, getKieTaskDetail } from '@/lib/ai';
+import { createVideoTask, getKieTaskDetail } from '@/lib/ai';
 import { createVideoPromptWithText } from '@/lib/text-overlay';
 
-// POST - Generate video using Kie.ai API with text overlay support
+// POST - Generate video using Grok Imagine Text-to-Video via Kie.ai API
+// Text overlay is embedded in the video generation prompt
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { postId, prompt, imageUrl, model = 'kling-video/v1/standard/text-to-video', textOverlay } = body;
+    const { postId, prompt, textOverlay, aspectRatio, duration, mode, resolution } = body;
 
-    if (!prompt && !imageUrl) {
-      return NextResponse.json({ error: 'Video prompt or image URL is required' }, { status: 400 });
+    if (!prompt) {
+      return NextResponse.json({ error: 'Video prompt is required' }, { status: 400 });
     }
 
     // If there's text overlay, embed it in the video prompt
     const enhancedPrompt = textOverlay 
-      ? createVideoPromptWithText(prompt || '', textOverlay)
-      : (prompt || '');
+      ? createVideoPromptWithText(prompt, textOverlay)
+      : prompt;
 
-    // Create video generation task via Kie.ai
-    const taskInput: Record<string, unknown> = {
+    // Create video generation task via Grok Imagine Text-to-Video
+    const taskResult = await createVideoTask({
       prompt: enhancedPrompt,
-      duration: '5',
-      aspect_ratio: '16:9',
-    };
-
-    if (imageUrl) {
-      taskInput.image_url = imageUrl;
-    }
-
-    const taskResult = await callKieAI('/api/v1/jobs/createTask', {
-      model,
-      input: taskInput,
+      aspectRatio: aspectRatio || '16:9',
+      mode: mode || 'normal',
+      duration: duration || 6,
+      resolution: resolution || '480p',
     });
 
     const taskId = taskResult.data?.taskId || taskResult.data?.task_id;
@@ -50,7 +44,7 @@ export async function POST(req: NextRequest) {
         data: { 
           videoTaskId: taskId,
           mediaType: 'video',
-          aiModel: 'kling-video',
+          aiModel: 'grok-imagine-text-to-video',
           ...(textOverlay ? { textOverlay } : {}),
         },
       });
@@ -60,7 +54,8 @@ export async function POST(req: NextRequest) {
       taskId,
       status: 'processing',
       postId,
-      message: 'Video generation task created. Use GET /api/media/video?taskId=xxx to check status.',
+      model: 'grok-imagine/text-to-video',
+      message: 'Video generation task created using Grok Imagine. Use GET /api/media/video?taskId=xxx to check status.',
     });
   } catch (error) {
     console.error('Error creating video task:', error);

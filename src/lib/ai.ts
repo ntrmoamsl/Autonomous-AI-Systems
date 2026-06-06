@@ -87,11 +87,9 @@ export async function callClaudeOpus(
   const { systemPrompt, maxTokens = 8192, thinkingFlag = true } = options;
 
   // Build the messages array with system prompt as the first assistant message
-  // (Claude API supports system as first assistant message or as separate field)
   const apiMessages: ClaudeMessage[] = [];
   
   if (systemPrompt) {
-    // Prepend system instructions as the first assistant message
     apiMessages.push({ role: 'assistant', content: systemPrompt });
   }
   
@@ -130,34 +128,19 @@ export async function callClaudeOpus(
   return textContent;
 }
 
-// Image generation input types
-export interface GrokImagineInput {
-  prompt: string;
-  aspectRatio?: string; // 2:3, 3:2, 1:1, 16:9, 9:16
-  nsfwChecker?: boolean;
-  enablePro?: boolean;
-}
-
+// ============================================================
+// GPT Image 2 - IMAGE generation (via Kie.ai API)
+// ============================================================
 export interface GptImage2Input {
   prompt: string;
   aspectRatio?: string; // auto, 1:1, 3:2, 2:3, 4:3, 3:4, 5:4, 4:5, 16:9, 9:16, 2:1, 1:2, 3:1, 1:3, 21:9, 9:21
   resolution?: string; // 1K, 2K, 4K
 }
 
-// Grok Imagine - Text to Image (via Kie.ai)
-export async function createGrokImageTask(input: GrokImagineInput) {
-  return callKieAI('/api/v1/jobs/createTask', {
-    model: 'grok-imagine/text-to-image',
-    input: {
-      prompt: input.prompt,
-      aspect_ratio: input.aspectRatio || '1:1',
-      nsfw_checker: input.nsfwChecker ?? false,
-      ...(input.enablePro !== undefined ? { enable_pro: input.enablePro } : {}),
-    },
-  });
-}
-
-// GPT Image 2 - Text to Image (via Kie.ai)
+/**
+ * Create an IMAGE generation task using GPT Image 2
+ * This is the ONLY model used for image generation.
+ */
 export async function createGptImage2Task(input: GptImage2Input) {
   const taskInput: Record<string, unknown> = {
     prompt: input.prompt,
@@ -177,24 +160,86 @@ export async function createGptImage2Task(input: GptImage2Input) {
   });
 }
 
-// Unified image generation - selects model based on parameter
-export async function createImageTask(
-  model: 'grok-imagine' | 'gpt-image-2',
-  input: { prompt: string; aspectRatio?: string; resolution?: string; }
-) {
-  if (model === 'gpt-image-2') {
-    return createGptImage2Task({
-      prompt: input.prompt,
-      aspectRatio: input.aspectRatio || 'auto',
-      resolution: input.resolution,
-    });
-  }
-  
-  return createGrokImageTask({
+/**
+ * Unified IMAGE generation task creator.
+ * Always uses GPT Image 2 (the only image generation model).
+ */
+export async function createImageTask(input: {
+  prompt: string;
+  aspectRatio?: string;
+  resolution?: string;
+}) {
+  return createGptImage2Task({
     prompt: input.prompt,
-    aspectRatio: input.aspectRatio || '1:1',
+    aspectRatio: input.aspectRatio || 'auto',
+    resolution: input.resolution,
   });
 }
+
+// ============================================================
+// Grok Imagine - VIDEO generation (via Kie.ai API)
+// ============================================================
+export interface GrokVideoInput {
+  prompt: string;
+  aspectRatio?: '2:3' | '3:2' | '1:1' | '16:9' | '9:16';
+  mode?: 'fun' | 'normal' | 'spicy';
+  duration?: number; // 6-30 seconds
+  resolution?: '480p' | '720p';
+  nsfwChecker?: boolean;
+}
+
+/**
+ * Create a VIDEO generation task using Grok Imagine Text-to-Video
+ * This is the ONLY model used for video generation.
+ */
+export async function createGrokVideoTask(input: GrokVideoInput) {
+  const videoInput: Record<string, unknown> = {
+    prompt: input.prompt,
+    aspect_ratio: input.aspectRatio || '16:9',
+    mode: input.mode || 'normal',
+  };
+
+  if (input.duration) {
+    videoInput.duration = input.duration;
+  }
+
+  if (input.resolution) {
+    videoInput.resolution = input.resolution;
+  }
+
+  if (input.nsfwChecker !== undefined) {
+    videoInput.nsfw_checker = input.nsfwChecker;
+  }
+
+  return callKieAI('/api/v1/jobs/createTask', {
+    model: 'grok-imagine/text-to-video',
+    input: videoInput,
+  });
+}
+
+/**
+ * Unified VIDEO generation task creator.
+ * Always uses Grok Imagine Text-to-Video (the only video generation model).
+ */
+export async function createVideoTask(input: {
+  prompt: string;
+  aspectRatio?: string;
+  mode?: 'fun' | 'normal' | 'spicy';
+  duration?: number;
+  resolution?: string;
+}) {
+  return createGrokVideoTask({
+    prompt: input.prompt,
+    aspectRatio: (input.aspectRatio as GrokVideoInput['aspectRatio']) || '16:9',
+    mode: input.mode || 'normal',
+    duration: input.duration || 6,
+    resolution: (input.resolution as '480p' | '720p') || '480p',
+  });
+}
+
+// ============================================================
+// Task Status Query (unified for all Kie.ai async tasks)
+// ============================================================
 
 // Get Task Details (unified query endpoint for all Kie.ai async tasks)
 export async function getKieTaskDetail(taskId: string) {

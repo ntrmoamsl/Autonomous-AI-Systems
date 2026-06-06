@@ -11,9 +11,9 @@
  */
 
 import { db } from '@/lib/db';
-import { callClaudeOpus, createImageTask, getKieTaskDetail, callKieAI } from '@/lib/ai';
+import { callClaudeOpus, createImageTask, createVideoTask, getKieTaskDetail } from '@/lib/ai';
 import { getFacebookConfig } from '@/lib/config';
-import { addTextOverlayToBase64, addTextOverlayFromUrl, createVideoPromptWithText } from '@/lib/text-overlay';
+import { addTextOverlay, createVideoPromptWithText } from '@/lib/text-overlay';
 
 // ============================================================
 // Types
@@ -390,18 +390,17 @@ ${usedIdeas ? `الأفكار المستخدمة سابقًا (لا تكررها
 async function executeGenerateImage(businessId: string, parameters: Record<string, unknown>): Promise<{ success: boolean; details: string; postId?: string }> {
   const postId = parameters.postId as string;
   const imagePrompt = parameters.imagePrompt as string;
-  const model = (parameters.imageModel as 'gpt-image-2' | 'grok-imagine') || 'gpt-image-2';
-  const aspectRatio = (parameters.aspectRatio as string) || (model === 'gpt-image-2' ? 'auto' : '1:1');
+  const aspectRatio = (parameters.aspectRatio as string) || 'auto';
 
   if (!postId || !imagePrompt) {
     return { success: false, details: 'Post ID and image prompt are required' };
   }
 
   try {
-    const taskResult = await createImageTask(model, {
+    // Always use GPT Image 2 for image generation
+    const taskResult = await createImageTask({
       prompt: imagePrompt,
       aspectRatio,
-      resolution: model === 'gpt-image-2' ? '1K' : undefined,
     });
 
     const taskId = taskResult.data?.taskId || taskResult.data?.task_id;
@@ -414,13 +413,13 @@ async function executeGenerateImage(businessId: string, parameters: Record<strin
       where: { id: postId },
       data: {
         videoTaskId: taskId,
-        aiModel: model === 'gpt-image-2' ? 'gpt-image-2' : 'grok-imagine',
+        aiModel: 'gpt-image-2',
         imagePrompt,
         mediaType: 'image',
       },
     });
 
-    return { success: true, details: `Image generation task created (${model}), task ID: ${taskId}`, postId };
+    return { success: true, details: `Image generation task created (GPT Image 2), task ID: ${taskId}`, postId };
   } catch (error) {
     return { success: false, details: `Image generation failed: ${error instanceof Error ? error.message : String(error)}` };
   }
@@ -441,19 +440,18 @@ async function executeGenerateVideo(businessId: string, parameters: Record<strin
       ? createVideoPromptWithText(videoPrompt, textOverlay)
       : videoPrompt;
 
-    const taskResult = await callKieAI('/api/v1/jobs/createTask', {
-      model: 'kling-video/v1/standard/text-to-video',
-      input: {
-        prompt: enhancedPrompt,
-        duration: '5',
-        aspect_ratio: '16:9',
-      },
+    // Always use Grok Imagine Text-to-Video for video generation
+    const taskResult = await createVideoTask({
+      prompt: enhancedPrompt,
+      aspectRatio: '16:9',
+      mode: 'normal',
+      duration: 6,
+      resolution: '480p',
     });
 
     const taskId = taskResult.data?.taskId || taskResult.data?.task_id;
 
     if (!taskId) {
-      // Fallback: try with image-to-video or another model
       return { success: false, details: `Video generation failed - no task ID. Response: ${JSON.stringify(taskResult).substring(0, 200)}` };
     }
 
@@ -461,13 +459,13 @@ async function executeGenerateVideo(businessId: string, parameters: Record<strin
       where: { id: postId },
       data: {
         videoTaskId: taskId,
-        aiModel: 'kling-video',
+        aiModel: 'grok-imagine-text-to-video',
         videoPrompt,
         mediaType: 'video',
       },
     });
 
-    return { success: true, details: `Video generation task created, task ID: ${taskId}`, postId };
+    return { success: true, details: `Video generation task created (Grok Imagine), task ID: ${taskId}`, postId };
   } catch (error) {
     return { success: false, details: `Video generation failed: ${error instanceof Error ? error.message : String(error)}` };
   }
@@ -892,10 +890,8 @@ export async function runAgentCycle(businessId: string): Promise<AgentRunResult>
             if (result.success && result.postId) {
               const post = await db.contentPost.findUnique({ where: { id: result.postId } });
               if (post) {
-                const business = await db.businessProfile.findUnique({ where: { id: businessId } });
-                
                 if (post.mediaType === 'video' && post.videoPrompt) {
-                  // Generate video
+                  // Generate video using Grok Imagine Text-to-Video
                   const vidResult = await executeGenerateVideo(businessId, {
                     postId: result.postId,
                     videoPrompt: post.videoPrompt,
@@ -909,13 +905,11 @@ export async function runAgentCycle(businessId: string): Promise<AgentRunResult>
                     executionTime: Date.now() - actionStart,
                   });
                 } else if (post.imagePrompt) {
-                  // Generate image
-                  const imageModel = (business?.imageModel as 'gpt-image-2' | 'grok-imagine') || 'gpt-image-2';
+                  // Generate image using GPT Image 2
                   const imgResult = await executeGenerateImage(businessId, {
                     postId: result.postId,
                     imagePrompt: post.imagePrompt,
-                    imageModel,
-                    aspectRatio: imageModel === 'gpt-image-2' ? 'auto' : '1:1',
+                    aspectRatio: 'auto',
                   });
                   results.push({
                     action: 'generate_image',
@@ -927,13 +921,10 @@ export async function runAgentCycle(businessId: string): Promise<AgentRunResult>
                 } else {
                   // No prompt provided - generate one based on content
                   const fallbackPrompt = `Professional marketing image for social media post about ${post.content.substring(0, 100)}`;
-                  const business2 = await db.businessProfile.findUnique({ where: { id: businessId } });
-                  const imageModel2 = (business2?.imageModel as 'gpt-image-2' | 'grok-imagine') || 'gpt-image-2';
                   const imgResult = await executeGenerateImage(businessId, {
                     postId: result.postId,
                     imagePrompt: fallbackPrompt,
-                    imageModel: imageModel2,
-                    aspectRatio: imageModel2 === 'gpt-image-2' ? 'auto' : '1:1',
+                    aspectRatio: 'auto',
                   });
                   results.push({
                     action: 'generate_image',

@@ -213,14 +213,6 @@ const GPT_IMAGE2_RATIOS = [
   { value: '3:4', label: 'عمودي كلاسيكي (3:4)' },
 ];
 
-const GROK_RATIOS = [
-  { value: '1:1', label: 'مربع (1:1)' },
-  { value: '16:9', label: 'عريض (16:9)' },
-  { value: '9:16', label: 'طويل (9:16)' },
-  { value: '3:2', label: 'أفقي (3:2)' },
-  { value: '2:3', label: 'عمودي (2:3)' },
-];
-
 // ============================================================
 // Main Component
 // ============================================================
@@ -267,7 +259,6 @@ export default function Home() {
 
   // Image generation state
   const [imageTasks, setImageTasks] = useState<Map<string, ImageGenTask>>(new Map());
-  const [imageModel, setImageModel] = useState<'gpt-image-2' | 'grok-imagine'>('gpt-image-2');
   const [imageAspectRatio, setImageAspectRatio] = useState('auto');
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -289,9 +280,6 @@ export default function Home() {
   // Schedule dialog
   const [scheduleDialogPost, setScheduleDialogPost] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState('');
-
-  // Settings state
-  const [defaultImageModel, setDefaultImageModel] = useState<'gpt-image-2' | 'grok-imagine'>('gpt-image-2');
 
   // ============================================================
   // Data Loading
@@ -315,10 +303,8 @@ export default function Home() {
           faqs: activeProfile.faqs || '',
           additionalInfo: activeProfile.additionalInfo || '',
           agentMode: activeProfile.agentMode || 'manual',
-          imageModel: activeProfile.imageModel || 'gpt-image-2',
+          imageModel: 'gpt-image-2',
         });
-        setImageModel((activeProfile.imageModel as 'gpt-image-2' | 'grok-imagine') || 'gpt-image-2');
-        setDefaultImageModel((activeProfile.imageModel as 'gpt-image-2' | 'grok-imagine') || 'gpt-image-2');
       }
     } catch (error) {
       console.error('Error loading business:', error);
@@ -555,7 +541,7 @@ export default function Home() {
           postId,
           prompt: imagePrompt,
           aspectRatio: imageAspectRatio,
-          model: imageModel,
+          model: 'gpt-image-2',
         }),
       });
       const data = await res.json();
@@ -787,7 +773,7 @@ export default function Home() {
 
   const filteredPosts = posts.filter(p => contentFilter === 'all' || p.status === contentFilter);
 
-  const aspectRatios = imageModel === 'gpt-image-2' ? GPT_IMAGE2_RATIOS : GROK_RATIOS;
+  const aspectRatios = GPT_IMAGE2_RATIOS;
 
   const trainingProgress = () => {
     if (!business) return 0;
@@ -1153,8 +1139,11 @@ export default function Home() {
                               <span className="text-xs font-mono text-violet-400">Claude Opus 4.8</span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-sm text-slate-400">نموذج الصور</span>
-                              <span className="text-xs font-mono text-violet-400">{form.imageModel === 'gpt-image-2' ? 'GPT Image-2' : 'Grok Imagine'}</span>
+                              <span className="text-sm text-slate-400">نماذج الوسائط</span>
+                              <div className="flex flex-col items-end gap-0.5">
+                                <span className="text-[10px] font-mono text-violet-400">الصور: GPT Image-2</span>
+                                <span className="text-[10px] font-mono text-rose-400">الفيديو: Grok Imagine</span>
+                              </div>
                             </div>
                             <Separator className="bg-white/5" />
                             <div className="flex items-center justify-between">
@@ -1386,16 +1375,23 @@ export default function Home() {
                           <Textarea value={form.additionalInfo} onChange={(e) => setForm({ ...form, additionalInfo: e.target.value })} placeholder="معلومات إضافية للوكيل..." rows={3} className="bg-slate-700/50 border-white/10 text-white placeholder:text-slate-500" />
                         </div>
                         <div>
-                          <Label className="text-sm text-slate-400 mb-1 block">نموذج توليد الصور الافتراضي</Label>
-                          <Select value={form.imageModel} onValueChange={(v) => setForm({ ...form, imageModel: v })}>
-                            <SelectTrigger className="bg-slate-700/50 border-white/10 text-white">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="gpt-image-2">GPT Image-2</SelectItem>
-                              <SelectItem value="grok-imagine">Grok Imagine</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <Label className="text-sm text-slate-400 mb-1 block">نماذج توليد الوسائط</Label>
+                          <div className="p-3 rounded-xl bg-slate-700/30 border border-white/5 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-slate-400">صور:</span>
+                              <Badge className="bg-violet-500/20 text-violet-400 border-violet-500/30 text-[10px]">
+                                <ImageIcon className="w-2.5 h-2.5 ml-1" />
+                                GPT Image 2
+                              </Badge>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-slate-400">فيديو:</span>
+                              <Badge className="bg-rose-500/20 text-rose-400 border-rose-500/30 text-[10px]">
+                                <Video className="w-2.5 h-2.5 ml-1" />
+                                Grok Imagine
+                              </Badge>
+                            </div>
+                          </div>
                         </div>
                         <div>
                           <Label className="text-sm text-slate-400 mb-1 block">وضع الوكيل</Label>
@@ -1531,27 +1527,32 @@ export default function Home() {
                               </Button>
                             </div>
                           </div>
-                          {/* Image Model Settings */}
+                          {/* Media Models Info & Image Settings */}
                           <div className="p-3 rounded-xl bg-slate-700/30 border border-white/5">
                             <div className="flex items-center gap-2 mb-2">
-                              <ImageIcon className="w-3.5 h-3.5 text-violet-400" />
-                              <span className="text-xs font-medium text-violet-300">إعدادات الصور</span>
+                              <Layers className="w-3.5 h-3.5 text-violet-400" />
+                              <span className="text-xs font-medium text-violet-300">إعدادات الوسائط</span>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div>
-                                <Label className="text-[10px] text-slate-500 mb-1 block">النموذج</Label>
-                                <Select value={imageModel} onValueChange={(v: 'gpt-image-2' | 'grok-imagine') => { setImageModel(v); setImageAspectRatio(v === 'gpt-image-2' ? 'auto' : '1:1'); }}>
-                                  <SelectTrigger className="bg-slate-700/50 border-white/10 text-white h-8 text-xs">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="gpt-image-2">GPT Image-2</SelectItem>
-                                    <SelectItem value="grok-imagine">Grok Imagine</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                              <div className="space-y-2">
+                                <Label className="text-[10px] text-slate-500 mb-1 block">النماذج النشطة</Label>
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center gap-2 p-1.5 rounded-lg bg-slate-800/50">
+                                    <ImageIcon className="w-3 h-3 text-violet-400" />
+                                    <span className="text-[10px] text-slate-300">صور:</span>
+                                    <span className="text-[10px] font-mono text-violet-400">GPT Image 2</span>
+                                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400 mr-auto" />
+                                  </div>
+                                  <div className="flex items-center gap-2 p-1.5 rounded-lg bg-slate-800/50">
+                                    <Video className="w-3 h-3 text-rose-400" />
+                                    <span className="text-[10px] text-slate-300">فيديو:</span>
+                                    <span className="text-[10px] font-mono text-rose-400">Grok Imagine</span>
+                                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400 mr-auto" />
+                                  </div>
+                                </div>
                               </div>
                               <div>
-                                <Label className="text-[10px] text-slate-500 mb-1 block">نسبة الأبعاد</Label>
+                                <Label className="text-[10px] text-slate-500 mb-1 block">نسبة الأبعاد (الصور)</Label>
                                 <Select value={imageAspectRatio} onValueChange={setImageAspectRatio}>
                                   <SelectTrigger className="bg-slate-700/50 border-white/10 text-white h-8 text-xs">
                                     <SelectValue />
@@ -2166,15 +2167,15 @@ export default function Home() {
                         </div>
                         <div className="p-4 rounded-xl bg-slate-800/50 border border-white/5">
                           <div className="flex items-center gap-2 mb-2">
-                            <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                              <Sparkles className="w-4 h-4 text-amber-400" />
+                            <div className="w-8 h-8 rounded-lg bg-rose-500/20 flex items-center justify-center">
+                              <Video className="w-4 h-4 text-rose-400" />
                             </div>
                             <div>
                               <p className="text-sm font-medium">Grok Imagine</p>
-                              <p className="text-[10px] text-slate-500">توليد الصور</p>
+                              <p className="text-[10px] text-slate-500">توليد الفيديو</p>
                             </div>
                           </div>
-                          <p className="text-xs text-slate-400 leading-relaxed">نموذج بديل لتوليد الصور. يدعم نسب أبعاد أساسية مع نتائج إبداعية.</p>
+                          <p className="text-xs text-slate-400 leading-relaxed">يولد فيديوهات إبداعية من وصف نصي. يُستخدم تلقائياً عند اختيار نوع الوسائط فيديو.</p>
                         </div>
                       </div>
                     </CardContent>
@@ -2185,27 +2186,34 @@ export default function Home() {
                     <Card className="bg-slate-800/50 border-white/10">
                       <CardHeader>
                         <CardTitle className="text-base flex items-center gap-2">
-                          <ImageIcon className="w-4 h-4 text-violet-400" />
-                          نموذج توليد الصور الافتراضي
+                          <Layers className="w-4 h-4 text-violet-400" />
+                          نماذج توليد الوسائط
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-4">
-                        <Select value={defaultImageModel} onValueChange={(v: 'gpt-image-2' | 'grok-imagine') => {
-                          setDefaultImageModel(v);
-                          setImageModel(v);
-                          if (business) {
-                            setForm(prev => ({ ...prev, imageModel: v }));
-                          }
-                        }}>
-                          <SelectTrigger className="bg-slate-700/50 border-white/10 text-white">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="gpt-image-2">GPT Image-2</SelectItem>
-                            <SelectItem value="grok-imagine">Grok Imagine</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-slate-500">يُستخدم هذا النموذج افتراضياً عند توليد الصور تلقائياً أو يدوياً</p>
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between p-3 rounded-lg bg-slate-700/30 border border-white/5">
+                            <div className="flex items-center gap-2">
+                              <ImageIcon className="w-4 h-4 text-violet-400" />
+                              <div>
+                                <p className="text-sm font-medium">صور</p>
+                                <p className="text-[10px] text-slate-500">توليد الصور تلقائياً</p>
+                              </div>
+                            </div>
+                            <Badge className="bg-violet-500/20 text-violet-400 border-violet-500/30 font-mono text-xs">GPT Image 2</Badge>
+                          </div>
+                          <div className="flex items-center justify-between p-3 rounded-lg bg-slate-700/30 border border-white/5">
+                            <div className="flex items-center gap-2">
+                              <Video className="w-4 h-4 text-rose-400" />
+                              <div>
+                                <p className="text-sm font-medium">فيديو</p>
+                                <p className="text-[10px] text-slate-500">توليد الفيديو تلقائياً</p>
+                              </div>
+                            </div>
+                            <Badge className="bg-rose-500/20 text-rose-400 border-rose-500/30 font-mono text-xs">Grok Imagine</Badge>
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-500">الوكيل يختار تلقائياً نوع الوسائط (صورة أو فيديو) لكل منشور ويستخدم النموذج المناسب</p>
                       </CardContent>
                     </Card>
 
@@ -2306,7 +2314,7 @@ export default function Home() {
               <span>+</span>
               <span className="font-mono text-violet-400/70">GPT Image-2</span>
               <span>+</span>
-              <span className="font-mono text-violet-400/70">Grok Imagine</span>
+              <span className="font-mono text-rose-400/70">Grok Imagine</span>
             </div>
           </footer>
         </main>
