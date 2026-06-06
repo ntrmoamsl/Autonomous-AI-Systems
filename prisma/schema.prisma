@@ -1,0 +1,123 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Business Profile - The "Permanent Memory" of the AI agent
+model BusinessProfile {
+  id              String   @id @default(cuid())
+  companyName     String
+  description     String
+  products        String   // JSON string of products/services
+  targetAudience  String
+  toneOfVoice     String   // professional, casual, friendly, authoritative, etc.
+  marketingGoals  String   // JSON string of goals: sales, awareness, engagement, etc.
+  offers          String?  // JSON string of current offers/pricing
+  faqs            String?  // JSON string of FAQs
+  brandColors     String?  // JSON string of brand colors
+  additionalInfo  String?  // Any extra info
+  isActive        Boolean  @default(true)
+  posts           ContentPost[]
+  ideas           ContentIdea[]
+  schedules       ScheduleConfig[]
+  replies         SmartReply[]
+  analytics       AnalyticsSnapshot[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Content Posts - All generated content
+model ContentPost {
+  id              String   @id @default(cuid())
+  businessId      String
+  title           String?
+  content         String   // The main post text
+  contentType     String   // educational, marketing, storytelling, interactive, promotional
+  hashtags        String?  // Comma-separated hashtags
+  cta             String?  // Call to action
+  imageUrl        String?  // Generated image URL
+  imageData       String?  // Base64 image data
+  videoUrl        String?  // Generated video URL
+  videoTaskId     String?  // Async video task ID
+  platform        String   @default("facebook") // facebook, instagram, twitter, etc.
+  status          String   @default("draft") // draft, scheduled, published, failed
+  scheduledAt     DateTime?
+  publishedAt     DateTime?
+  publishResult   String?  // JSON string of publish result
+  retryCount      Int      @default(0)
+  aiModel         String?  // Which AI model was used
+  generationPrompt String? // The prompt used to generate
+  engagementScore Float?   // Performance score
+  reachCount      Int?
+  likeCount       Int?
+  commentCount    Int?
+  shareCount      Int?
+  business        BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Content Ideas - To prevent repetition and track variety
+model ContentIdea {
+  id          String   @id @default(cuid())
+  businessId  String
+  idea        String   // The core idea/concept
+  category    String   // educational, marketing, storytelling, etc.
+  used        Boolean  @default(false)
+  usedAt      DateTime?
+  business    BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+}
+
+// Publishing Schedule Configuration
+model ScheduleConfig {
+  id            String   @id @default(cuid())
+  businessId    String
+  isActive      Boolean  @default(true)
+  frequency     String   @default("daily") // daily, twice-daily, weekly
+  preferredTimes String? // JSON array of times like ["09:00", "18:00"]
+  daysOfWeek    String?  // JSON array: [1,2,3,4,5] (Mon-Fri)
+  autoPublish   Boolean  @default(false)
+  autoGenerate  Boolean  @default(false)
+  business      BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// Smart Reply Log
+model SmartReply {
+  id          String   @id @default(cuid())
+  businessId  String
+  postId      String?  // Facebook post ID
+  commentId   String?  // Facebook comment ID
+  originalMsg String   // The user's comment/message
+  replyText   String   // The AI-generated reply
+  intentType  String?  // question, purchase, complaint, engagement
+  sentAt      DateTime?
+  business    BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+}
+
+// Analytics Snapshot - Periodic snapshots for tracking
+model AnalyticsSnapshot {
+  id              String   @id @default(cuid())
+  businessId      String
+  date            DateTime
+  totalPosts      Int      @default(0)
+  totalReach      Int      @default(0)
+  totalLikes      Int      @default(0)
+  totalComments   Int      @default(0)
+  totalShares     Int      @default(0)
+  avgEngagement   Float    @default(0)
+  bestContentType String?
+  bestPostTime    String?
+  business        BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+}
