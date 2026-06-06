@@ -82,16 +82,34 @@ export async function GET(req: NextRequest) {
     // Query task status from Kie.ai
     const result = await getKieTaskDetail(taskId);
 
-    const taskStatus = result.data?.taskStatus || result.data?.task_status || result.data?.status || 'unknown';
+    const taskState = result.data?.state || 'unknown';
 
-    if (taskStatus === 'SUCCESS' || taskStatus === 'completed' || taskStatus === 'succeeded') {
-      // Extract image URL from result
-      const output = result.data?.output || result.data;
-      const imageUrl = output?.image_url || output?.imageUrl || 
+    if (taskState === 'success') {
+      // Extract image URL from resultJson (it's a JSON string)
+      let imageUrl: string | null = null;
+      const resultJsonStr = result.data?.resultJson;
+      if (resultJsonStr && typeof resultJsonStr === 'string') {
+        try {
+          const resultJson = JSON.parse(resultJsonStr);
+          // resultUrls is an array of URLs
+          if (Array.isArray(resultJson.resultUrls) && resultJson.resultUrls.length > 0) {
+            imageUrl = resultJson.resultUrls[0];
+          } else if (resultJson.url) {
+            imageUrl = resultJson.url;
+          }
+        } catch {
+          // resultJson might not be valid JSON
+        }
+      }
+      // Fallback: try other formats
+      if (!imageUrl) {
+        const output = result.data?.output || result.data;
+        imageUrl = output?.image_url || output?.imageUrl || 
                        (Array.isArray(output?.images) ? output.images[0]?.url : null) ||
                        (Array.isArray(output?.image_urls) ? output.image_urls[0] : null) ||
                        (Array.isArray(output?.results) ? output.results[0]?.url : null) ||
                        output?.url || output?.result;
+      }
 
       if (postId && imageUrl) {
         // Store the image URL
@@ -144,7 +162,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    if (taskStatus === 'FAILED' || taskStatus === 'failed' || taskStatus === 'error') {
+    if (taskState === 'failed') {
       // Clear task ID from post
       if (postId) {
         await db.contentPost.update({
@@ -163,7 +181,7 @@ export async function GET(req: NextRequest) {
     // Still processing
     return NextResponse.json({
       status: 'PROCESSING',
-      taskStatus,
+      taskState,
       postId,
     });
   } catch (error) {

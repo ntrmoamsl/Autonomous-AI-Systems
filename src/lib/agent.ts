@@ -715,17 +715,40 @@ async function executeCheckPendingTasks(businessId: string): Promise<{ success: 
 
     try {
       const result = await getKieTaskDetail(post.videoTaskId);
-      const taskStatus = result.data?.taskStatus || result.data?.task_status || result.data?.status || 'unknown';
+      const taskState = result.data?.state || 'unknown';
 
-      if (taskStatus === 'SUCCESS' || taskStatus === 'completed' || taskStatus === 'succeeded') {
-        const output = result.data?.output || result.data;
+      if (taskState === 'success') {
+        // Extract URL from resultJson (it's a JSON string)
+        const resultJsonStr = result.data?.resultJson;
+        let parsedResult: Record<string, unknown> | null = null;
+        if (resultJsonStr && typeof resultJsonStr === 'string') {
+          try {
+            parsedResult = JSON.parse(resultJsonStr);
+          } catch {
+            // resultJson might not be valid JSON
+          }
+        }
 
         // Handle image result
         if (post.mediaType === 'image' || (!post.mediaType && !post.videoUrl)) {
-          const imageUrl = output?.image_url || output?.imageUrl ||
-            (Array.isArray(output?.images) ? output.images[0]?.url : null) ||
-            (Array.isArray(output?.image_urls) ? output.image_urls[0] : null) ||
-            output?.url || output?.result;
+          let imageUrl: string | null = null;
+          if (parsedResult) {
+            // resultUrls is an array of URLs
+            const resultUrls = parsedResult.resultUrls as string[] | undefined;
+            if (Array.isArray(resultUrls) && resultUrls.length > 0) {
+              imageUrl = resultUrls[0];
+            } else if (parsedResult.url) {
+              imageUrl = parsedResult.url as string;
+            }
+          }
+          // Fallback: try old formats
+          if (!imageUrl) {
+            const output = result.data?.output || result.data;
+            imageUrl = output?.image_url || output?.imageUrl ||
+              (Array.isArray(output?.images) ? output.images[0]?.url : null) ||
+              (Array.isArray(output?.image_urls) ? output.image_urls[0] : null) ||
+              output?.url || output?.result;
+          }
 
           if (imageUrl) {
             await db.contentPost.update({
@@ -767,9 +790,22 @@ async function executeCheckPendingTasks(businessId: string): Promise<{ success: 
         }
         // Handle video result
         else if (post.mediaType === 'video') {
-          const videoUrl = output?.video_url || output?.videoUrl || 
-            (Array.isArray(output?.videos) ? output.videos[0]?.url : null) ||
-            output?.url || output?.result;
+          let videoUrl: string | null = null;
+          if (parsedResult) {
+            const resultUrls = parsedResult.resultUrls as string[] | undefined;
+            if (Array.isArray(resultUrls) && resultUrls.length > 0) {
+              videoUrl = resultUrls[0];
+            } else if (parsedResult.url) {
+              videoUrl = parsedResult.url as string;
+            }
+          }
+          // Fallback: try old formats
+          if (!videoUrl) {
+            const output = result.data?.output || result.data;
+            videoUrl = output?.video_url || output?.videoUrl || 
+              (Array.isArray(output?.videos) ? output.videos[0]?.url : null) ||
+              output?.url || output?.result;
+          }
 
           if (videoUrl) {
             await db.contentPost.update({
@@ -782,7 +818,7 @@ async function executeCheckPendingTasks(businessId: string): Promise<{ success: 
             completed++;
           }
         }
-      } else if (taskStatus === 'FAILED' || taskStatus === 'failed') {
+      } else if (taskState === 'failed') {
         await db.contentPost.update({
           where: { id: post.id },
           data: { videoTaskId: null },

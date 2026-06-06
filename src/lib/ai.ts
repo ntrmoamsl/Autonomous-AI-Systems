@@ -242,8 +242,23 @@ export async function createVideoTask(input: {
 // ============================================================
 
 // Get Task Details (unified query endpoint for all Kie.ai async tasks)
+// Uses GET /api/v1/jobs/recordInfo?taskId=xxx
 export async function getKieTaskDetail(taskId: string) {
-  return callKieAI(`/api/v1/jobs/getTaskDetail`, { taskId });
+  const apiKey = getKieApiKey();
+  
+  const response = await fetch(`${KIE_API_BASE}/api/v1/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+    },
+  });
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Kie.ai API error (${response.status}): ${errorText}`);
+  }
+  
+  return response.json();
 }
 
 // Poll Kie.ai task until completion or timeout
@@ -256,24 +271,19 @@ export async function pollKieTask(
     const result = await getKieTaskDetail(taskId);
     
     if (result.code === 200 && result.data) {
-      const taskStatus = result.data.taskStatus || result.data.task_status || result.data.status;
+      const state = result.data.state;
       
-      if (taskStatus === 'SUCCESS' || taskStatus === 'completed' || taskStatus === 'succeeded') {
+      if (state === 'success') {
         return { status: 'SUCCESS', data: result.data };
       }
       
-      if (taskStatus === 'FAILED' || taskStatus === 'failed' || taskStatus === 'error') {
+      if (state === 'failed') {
         return { status: 'FAILED', data: result.data };
       }
       
-      // Still processing - wait and retry
+      // Still generating/processing - wait and retry
       await new Promise(resolve => setTimeout(resolve, intervalMs));
       continue;
-    }
-    
-    // If the response itself indicates completion
-    if (result.code === 200 && result.data?.output) {
-      return { status: 'SUCCESS', data: result.data };
     }
     
     // Wait and retry for pending/processing tasks

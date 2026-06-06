@@ -597,3 +597,37 @@ Stage Summary:
 - The agent follows the schedule saved in the database for auto-publishing
 - Flow: Generate → Schedule to nearest preferred time → Generate media → Auto-publish at preferred time
 - This implements the user's request: "بعد ما يخلص قرار ويعمل المنشور لا يحفظة فى مسودة لازم هو يجدوله لاقرب وقت تم تحديدة من قبلى"
+
+---
+Task ID: 1
+Agent: main
+Task: Fix Kie.ai image/video task status polling - 404 error on getTaskDetail endpoint
+
+Work Log:
+- Identified that the Kie.ai API endpoint `/api/v1/jobs/getTaskDetail` (POST) returns 404 - this endpoint no longer exists
+- Searched the web for the correct Kie.ai task status API documentation
+- Found from dltHub documentation that the correct endpoint is `GET /api/v1/jobs/recordInfo?taskId=xxx`
+- Tested the endpoint manually with curl and confirmed it works:
+  - Status field is `state` (values: "generating", "success", "failed") instead of `taskStatus`
+  - Result is in `resultJson` (a JSON string containing `{"resultUrls": ["url1"]}`) instead of `output`
+  - Method is GET with query parameter instead of POST with body
+- Updated `src/lib/ai.ts`:
+  - Changed `getKieTaskDetail()` to use `GET /api/v1/jobs/recordInfo?taskId=xxx`
+  - Updated `pollKieTask()` to use `state` field and "success"/"failed" values
+- Updated `src/app/api/media/image/route.ts`:
+  - Changed status parsing to use `state` field
+  - Added `resultJson` parsing with `resultUrls` array extraction
+  - Kept fallback for old formats
+- Updated `src/app/api/media/video/route.ts`:
+  - Same changes as image route
+- Updated `src/lib/agent.ts`:
+  - Updated `executeCheckPendingTasks()` to use `state` and `resultJson`
+  - Added proper URL extraction from `resultUrls` array
+- Ran lint check - all clean
+- Tested with Agent Browser: video generation completed successfully (video player displayed), no 404 errors
+
+Stage Summary:
+- Root cause: Kie.ai deprecated `/api/v1/jobs/getTaskDetail` endpoint
+- Fix: Use `GET /api/v1/jobs/recordInfo?taskId=xxx` instead
+- New API response format: `state` field for status, `resultJson` string for results containing `resultUrls` array
+- Image and video generation now works correctly with the updated API endpoint

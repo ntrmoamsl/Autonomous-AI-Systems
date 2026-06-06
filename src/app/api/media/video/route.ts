@@ -80,13 +80,32 @@ export async function GET(req: NextRequest) {
     // Query task status from Kie.ai
     const result = await getKieTaskDetail(taskId);
 
-    const taskStatus = result.data?.taskStatus || result.data?.task_status || result.data?.status || 'unknown';
+    const taskState = result.data?.state || 'unknown';
 
-    if (taskStatus === 'SUCCESS' || taskStatus === 'completed' || taskStatus === 'succeeded') {
-      const output = result.data?.output || result.data;
-      const videoUrl = output?.video_url || output?.videoUrl || 
+    if (taskState === 'success') {
+      // Extract video URL from resultJson (it's a JSON string)
+      let videoUrl: string | null = null;
+      const resultJsonStr = result.data?.resultJson;
+      if (resultJsonStr && typeof resultJsonStr === 'string') {
+        try {
+          const resultJson = JSON.parse(resultJsonStr);
+          // resultUrls is an array of URLs
+          if (Array.isArray(resultJson.resultUrls) && resultJson.resultUrls.length > 0) {
+            videoUrl = resultJson.resultUrls[0];
+          } else if (resultJson.url) {
+            videoUrl = resultJson.url;
+          }
+        } catch {
+          // resultJson might not be valid JSON
+        }
+      }
+      // Fallback: try other formats
+      if (!videoUrl) {
+        const output = result.data?.output || result.data;
+        videoUrl = output?.video_url || output?.videoUrl || 
                        (Array.isArray(output?.videos) ? output.videos[0]?.url : null) ||
                        output?.url || output?.result;
+      }
 
       if (postId && videoUrl) {
         await db.contentPost.update({
@@ -105,7 +124,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    if (taskStatus === 'FAILED' || taskStatus === 'failed' || taskStatus === 'error') {
+    if (taskState === 'failed') {
       if (postId) {
         await db.contentPost.update({
           where: { id: postId },
@@ -123,7 +142,7 @@ export async function GET(req: NextRequest) {
     // Still processing
     return NextResponse.json({
       status: 'PROCESSING',
-      taskStatus,
+      taskState,
       postId,
     });
   } catch (error) {
