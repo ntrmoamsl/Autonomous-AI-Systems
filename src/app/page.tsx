@@ -306,6 +306,7 @@ export default function Home() {
   const settingsIdRef = useRef<string | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const settingsLoadedRef = useRef(false);
+  const skipSaveRef = useRef(false);
   const businessIdRef = useRef<string | null>(null);
 
   // Schedule dialog
@@ -317,6 +318,7 @@ export default function Home() {
   // ============================================================
 
   const loadSettings = useCallback(async (businessId?: string) => {
+    skipSaveRef.current = true; // Skip saves during loading
     try {
       const url = businessId ? `/api/settings?businessId=${businessId}` : '/api/settings';
       const res = await fetch(url);
@@ -334,12 +336,17 @@ export default function Home() {
         if (s.genContentType) setGenContentType(s.genContentType);
         if (s.genCount !== undefined && s.genCount !== null) setGenCount(s.genCount);
         if (s.customIntervalUnit) setCustomIntervalUnit(s.customIntervalUnit as 'minutes' | 'hours');
+        if (s.contentFilter) setContentFilter(s.contentFilter);
+        if (s.agentMode) setForm(prev => ({ ...prev, agentMode: s.agentMode }));
+        if (s.imageModel) setForm(prev => ({ ...prev, imageModel: s.imageModel }));
         settingsLoadedRef.current = true;
       }
     } catch (error) {
       console.error('Error loading settings:', error);
       settingsLoadedRef.current = true;
     }
+    // Allow saves after all state updates have been processed
+    setTimeout(() => { skipSaveRef.current = false; }, 500);
   }, []);
 
   const saveSettings = useCallback(async () => {
@@ -355,6 +362,9 @@ export default function Home() {
         genContentType,
         genCount,
         customIntervalUnit,
+        contentFilter,
+        agentMode: form.agentMode,
+        imageModel: form.imageModel,
       };
       if (settingsIdRef.current) body.id = settingsIdRef.current;
       if (businessIdRef.current) body.businessId = businessIdRef.current;
@@ -371,13 +381,13 @@ export default function Home() {
     } catch (error) {
       console.error('Error saving settings:', error);
     }
-  }, [autoInterval, selectedTimes, autoPublish, autoGenerate, scheduleFreq, imageAspectRatio, autoReplyEnabled, genContentType, genCount, customIntervalUnit]);
+  }, [autoInterval, selectedTimes, autoPublish, autoGenerate, scheduleFreq, imageAspectRatio, autoReplyEnabled, genContentType, genCount, customIntervalUnit, contentFilter, form.agentMode, form.imageModel]);
 
   // Debounced save - saves 1 second after last change
   const debouncedSave = useCallback(() => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
-      if (settingsLoadedRef.current) saveSettings();
+      if (settingsLoadedRef.current && !skipSaveRef.current) saveSettings();
     }, 1000);
   }, [saveSettings]);
 
@@ -389,7 +399,7 @@ export default function Home() {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [autoInterval, selectedTimes, autoPublish, autoGenerate, scheduleFreq, imageAspectRatio, autoReplyEnabled, genContentType, genCount, customIntervalUnit, debouncedSave]);
+  }, [autoInterval, selectedTimes, autoPublish, autoGenerate, scheduleFreq, imageAspectRatio, autoReplyEnabled, genContentType, genCount, customIntervalUnit, contentFilter, form.agentMode, form.imageModel, debouncedSave]);
 
   // ============================================================
   // Data Loading

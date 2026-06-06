@@ -164,6 +164,9 @@ model AgentSettings {
   genContentType  String   @default("varied")
   genCount        Int      @default(3)
   customIntervalUnit String @default("minutes") // minutes or hours
+  contentFilter   String   @default("all") // all, draft, scheduled, published, failed
+  agentMode       String   @default("manual") // manual, semi-auto, fully-autonomous
+  imageModel      String   @default("gpt-image-2") // gpt-image-2
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }

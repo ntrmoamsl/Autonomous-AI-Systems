@@ -34,6 +34,9 @@ export async function GET(req: NextRequest) {
           genContentType: 'varied',
           genCount: 3,
           customIntervalUnit: 'minutes',
+          contentFilter: 'all',
+          agentMode: 'manual',
+          imageModel: 'gpt-image-2',
         },
       });
     }
@@ -65,6 +68,9 @@ export async function PUT(req: NextRequest) {
       genContentType,
       genCount,
       customIntervalUnit,
+      contentFilter,
+      agentMode,
+      imageModel,
     } = body;
 
     const data: Record<string, unknown> = {};
@@ -78,6 +84,9 @@ export async function PUT(req: NextRequest) {
     if (genContentType !== undefined) data.genContentType = genContentType;
     if (genCount !== undefined) data.genCount = genCount;
     if (customIntervalUnit !== undefined) data.customIntervalUnit = customIntervalUnit;
+    if (contentFilter !== undefined) data.contentFilter = contentFilter;
+    if (agentMode !== undefined) data.agentMode = agentMode;
+    if (imageModel !== undefined) data.imageModel = imageModel;
     if (businessId !== undefined) data.businessId = businessId;
 
     let settings;

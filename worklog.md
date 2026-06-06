@@ -534,3 +534,31 @@ Stage Summary:
 - All UI settings (autoInterval, selectedTimes, autoPublish, etc.) are saved to Supabase
 - Project pushed to GitHub: https://github.com/ntrmoamsl/Autonomous-AI-Systems
 - Ready for Vercel deployment (instructions provided to user)
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Fix settings persistence race condition + add missing settings fields
+
+Work Log:
+- Root cause identified: Race condition in page.tsx where loadSettings() calls setters that trigger the debounced save effect BEFORE new values are committed, causing old/default values to overwrite DB settings
+- Updated /prisma/schema.prisma: Added contentFilter, agentMode, imageModel fields to AgentSettings model
+- Updated /src/app/api/settings/route.ts: Added contentFilter, agentMode, imageModel to GET defaults and PUT handler
+- Fixed race condition in /src/app/page.tsx:
+  - Added skipSaveRef (useRef<boolean>) to track loading phase
+  - loadSettings() now sets skipSaveRef.current = true at start, preventing saves during state updates
+  - After all setters complete, setTimeout(() => { skipSaveRef.current = false; }, 500) allows saves again
+  - debouncedSave now checks both settingsLoadedRef.current AND !skipSaveRef.current before saving
+  - loadSettings now loads contentFilter, agentMode, imageModel from API response
+  - saveSettings now includes contentFilter, agentMode (form.agentMode), imageModel (form.imageModel) in request body
+  - Save effect dependency array updated to include contentFilter, form.agentMode, form.imageModel
+- Pushed schema changes to Supabase via raw SQL (ALTER TABLE ADD COLUMN IF NOT EXISTS)
+- Regenerated Prisma client with bun run db:generate
+- All lint checks pass with zero errors
+- Dev server running with no errors
+
+Stage Summary:
+- Race condition bug FIXED: Settings no longer reset on page reload
+- skipSaveRef prevents debounced save from firing during initial load
+- 3 new settings now persist: contentFilter, agentMode, imageModel
+- All settings survive page reloads correctly
