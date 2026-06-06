@@ -195,11 +195,15 @@ const INTENT_LABELS: Record<string, string> = {
 };
 
 const AUTONOMOUS_INTERVALS = [
-  { value: 120, label: 'كل ساعتين' },
-  { value: 240, label: 'كل 4 ساعات' },
-  { value: 360, label: 'كل 6 ساعات' },
-  { value: 720, label: 'كل 12 ساعة' },
-  { value: 1440, label: 'يومياً' },
+  { value: 5, label: 'كل 5 دقائق', desc: 'أخبار عاجلة', color: 'from-rose-500 to-red-600' },
+  { value: 10, label: 'كل 10 دقائق', desc: 'أخبار سريعة', color: 'from-rose-500 to-orange-600' },
+  { value: 30, label: 'كل 30 دقيقة', desc: 'تفاعل سريع', color: 'from-amber-500 to-orange-600' },
+  { value: 60, label: 'كل ساعة', desc: 'نشاط مرتفع', color: 'from-amber-500 to-yellow-600' },
+  { value: 120, label: 'كل ساعتين', desc: 'نشاط متوسط', color: 'from-emerald-500 to-teal-600' },
+  { value: 240, label: 'كل 4 ساعات', desc: 'نشاط عادي', color: 'from-emerald-500 to-cyan-600' },
+  { value: 360, label: 'كل 6 ساعات', desc: 'صفحة جديدة', color: 'from-cyan-500 to-blue-600' },
+  { value: 720, label: 'كل 12 ساعة', desc: 'محتوى قليل', color: 'from-blue-500 to-violet-600' },
+  { value: 1440, label: 'يومياً', desc: 'صفحة بسيطة', color: 'from-violet-500 to-purple-600' },
 ];
 
 const GPT_IMAGE2_RATIOS = [
@@ -230,9 +234,30 @@ export default function Home() {
 
   // Agent autonomous state
   const [autoInterval, setAutoInterval] = useState(240); // minutes
+  const [customIntervalValue, setCustomIntervalValue] = useState('');
+  const [customIntervalUnit, setCustomIntervalUnit] = useState<'minutes' | 'hours'>('minutes');
   const [countdown, setCountdown] = useState(0);
   const [agentRunning, setAgentRunning] = useState(false);
   const autoRunRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Helper: get display label for current interval
+  const getIntervalLabel = (minutes: number) => {
+    const found = AUTONOMOUS_INTERVALS.find(i => i.value === minutes);
+    if (found) return found.label;
+    if (minutes < 60) return `كل ${minutes} دقيقة`;
+    if (minutes % 60 === 0) return `كل ${minutes / 60} ساعة`;
+    return `كل ${Math.floor(minutes / 60)} ساعة و${minutes % 60} دقيقة`;
+  };
+
+  const applyCustomInterval = () => {
+    const num = parseInt(customIntervalValue);
+    if (!num || num < 1) return;
+    const minutes = customIntervalUnit === 'hours' ? num * 60 : num;
+    if (minutes < 1) return;
+    setAutoInterval(minutes);
+    setCustomIntervalValue('');
+    toast({ title: 'تم تحديد الوقت', description: `التشغيل التلقائي ${getIntervalLabel(minutes)}` });
+  };
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
 
   // Training form state
@@ -1045,26 +1070,113 @@ export default function Home() {
 
                           {/* Auto-run interval */}
                           {form.agentMode === 'fully-autonomous' && (
-                            <div className="mt-4 space-y-3">
-                              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
+                            <div className="mt-4 space-y-4">
+                              {/* Current interval display + countdown */}
+                              <div className="flex items-center gap-3 p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
                                 <Timer className="w-5 h-5 text-emerald-400 shrink-0" />
-                                <span className="text-sm text-emerald-300">التشغيل التلقائي كل:</span>
-                                <Select value={String(autoInterval)} onValueChange={(v) => setAutoInterval(Number(v))}>
-                                  <SelectTrigger className="bg-slate-700/50 border-white/10 text-white w-40">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {AUTONOMOUS_INTERVALS.map(opt => (
-                                      <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                <span className="text-sm text-emerald-300">التشغيل التلقائي:</span>
+                                <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs font-bold">
+                                  {getIntervalLabel(autoInterval)}
+                                </Badge>
                                 {countdown > 0 && (
                                   <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded">
                                     التالي: {formatCountdown(countdown)}
                                   </span>
                                 )}
                               </div>
+
+                              {/* Quick interval buttons */}
+                              <div>
+                                <Label className="text-xs text-slate-400 mb-2 block">اختر السرعة</Label>
+                                <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                                  {AUTONOMOUS_INTERVALS.map(opt => {
+                                    const isSelected = autoInterval === opt.value;
+                                    const isUrgent = opt.value <= 10;
+                                    const isFast = opt.value > 10 && opt.value <= 60;
+                                    return (
+                                      <button
+                                        key={opt.value}
+                                        onClick={() => setAutoInterval(opt.value)}
+                                        className={`relative flex flex-col items-center gap-0.5 px-2 py-2.5 rounded-xl border transition-all duration-200 ${
+                                          isSelected
+                                            ? isUrgent
+                                              ? 'bg-rose-500/20 border-rose-500/50 text-rose-300 shadow-lg shadow-rose-500/10'
+                                              : isFast
+                                                ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 shadow-lg shadow-amber-500/10'
+                                                : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-lg shadow-emerald-500/10'
+                                            : 'bg-slate-700/30 border-white/5 text-slate-500 hover:bg-slate-700/50 hover:text-slate-300 hover:border-white/10'
+                                        }`}
+                                      >
+                                        <span className="text-[10px] font-bold leading-tight text-center">{opt.label}</span>
+                                        <span className={`text-[8px] ${isSelected ? (isUrgent ? 'text-rose-400' : isFast ? 'text-amber-400' : 'text-emerald-400') : 'text-slate-600'}`}>
+                                          {opt.desc}
+                                        </span>
+                                        {isSelected && (
+                                          <span className="absolute -top-1 -left-1 w-3 h-3 rounded-full bg-emerald-500 border-2 border-slate-900 flex items-center justify-center">
+                                            <CheckCircle2 className="w-2 h-2 text-white" />
+                                          </span>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Custom interval input */}
+                              <div className="p-3 rounded-xl bg-slate-700/20 border border-dashed border-white/10">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                                  <span className="text-xs font-bold text-amber-300">توقيت مخصص</span>
+                                  <span className="text-[9px] text-slate-500">للأخبار والمواقف العاجلة</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    value={customIntervalValue}
+                                    onChange={(e) => setCustomIntervalValue(e.target.value)}
+                                    placeholder="الرقم"
+                                    className="bg-slate-700/50 border-white/10 text-white w-20 h-8 text-sm placeholder:text-slate-600"
+                                    onKeyDown={(e) => { if (e.key === 'Enter') applyCustomInterval(); }}
+                                  />
+                                  <div className="flex rounded-lg overflow-hidden border border-white/10">
+                                    <button
+                                      onClick={() => setCustomIntervalUnit('minutes')}
+                                      className={`px-3 py-1.5 text-[10px] font-bold transition-all ${
+                                        customIntervalUnit === 'minutes'
+                                          ? 'bg-amber-500/30 text-amber-300'
+                                          : 'bg-slate-700/50 text-slate-500 hover:text-slate-300'
+                                      }`}
+                                    >
+                                      دقيقة
+                                    </button>
+                                    <button
+                                      onClick={() => setCustomIntervalUnit('hours')}
+                                      className={`px-3 py-1.5 text-[10px] font-bold transition-all border-r border-l border-white/10 ${
+                                        customIntervalUnit === 'hours'
+                                          ? 'bg-amber-500/30 text-amber-300'
+                                          : 'bg-slate-700/50 text-slate-500 hover:text-slate-300'
+                                      }`}
+                                    >
+                                      ساعة
+                                    </button>
+                                  </div>
+                                  <Button
+                                    onClick={applyCustomInterval}
+                                    disabled={!customIntervalValue || parseInt(customIntervalValue) < 1}
+                                    size="sm"
+                                    className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white h-8 text-xs"
+                                  >
+                                    تطبيق
+                                  </Button>
+                                  {autoInterval > 0 && !AUTONOMOUS_INTERVALS.find(i => i.value === autoInterval) && (
+                                    <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/30 text-[10px] animate-pulse">
+                                      ⚡ مخصص: {getIntervalLabel(autoInterval)}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+
                               {/* Visual explanation of auto-run */}
                               <div className="p-4 rounded-xl bg-slate-800/40 border border-white/5 space-y-3">
                                 <div className="flex items-center gap-2 mb-2">
@@ -1078,7 +1190,7 @@ export default function Home() {
                                       <span className="text-xs font-bold text-violet-300">مرحلة التفكير 🧠</span>
                                     </div>
                                     <p className="text-[11px] text-slate-400 leading-relaxed">
-                                      كل <span className="text-violet-300 font-bold">{AUTONOMOUS_INTERVALS.find(i => i.value === autoInterval)?.label}</span>، الوكيل يفكر ويقرر: يولد محتوى، يحلل الأداء، أو ينتظر
+                                      كل <span className="text-violet-300 font-bold">{getIntervalLabel(autoInterval)}</span>، الوكيل يفكر ويقرر: يولد محتوى، يحلل الأداء، أو ينتظر
                                     </p>
                                   </div>
                                   <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
@@ -1089,37 +1201,6 @@ export default function Home() {
                                     <p className="text-[11px] text-slate-400 leading-relaxed">
                                       في <span className="text-emerald-300 font-bold">الأوقات المفضلة</span> المحددة في التقويم، الوكيل ينشر المحتوى المجدول على فيسبوك
                                     </p>
-                                  </div>
-                                </div>
-                                {/* Timeline visual */}
-                                <div className="p-3 rounded-lg bg-slate-700/30 border border-white/5">
-                                  <span className="text-[10px] font-bold text-slate-400 mb-2 block">مثال: تشغيل كل ساعتين + نشر 10م</span>
-                                  <div className="flex items-center gap-1 overflow-x-auto pb-1">
-                                    {[
-                                      { time: '12ص', type: 'think', label: 'يفكر' },
-                                      { time: '2ص', type: 'think', label: 'يفكر' },
-                                      { time: '4ص', type: 'think', label: 'يفكر' },
-                                      { time: '6ص', type: 'think', label: 'يفكر' },
-                                      { time: '8ص', type: 'think', label: 'يفكر' },
-                                      { time: '10م', type: 'publish', label: 'ينشر 🚀' },
-                                      { time: '12م', type: 'think', label: 'يفكر' },
-                                    ].map((item, i) => (
-                                      <div key={i} className="flex items-center shrink-0">
-                                        <div className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg ${
-                                          item.type === 'publish' 
-                                            ? 'bg-emerald-500/20 border border-emerald-500/40' 
-                                            : 'bg-violet-500/10 border border-violet-500/20'
-                                        }`}>
-                                          <span className={`text-[10px] font-bold ${item.type === 'publish' ? 'text-emerald-300' : 'text-violet-300'}`}>
-                                            {item.time}
-                                          </span>
-                                          <span className={`text-[9px] ${item.type === 'publish' ? 'text-emerald-400' : 'text-violet-400'}`}>
-                                            {item.label}
-                                          </span>
-                                        </div>
-                                        {i < 6 && <ChevronLeft className="w-3 h-3 text-slate-600 shrink-0" />}
-                                      </div>
-                                    ))}
                                   </div>
                                 </div>
                               </div>
@@ -2599,17 +2680,75 @@ export default function Home() {
                           </Select>
                         </div>
                         <div>
-                          <Label className="text-sm text-slate-400 mb-1 block">فترة التشغيل التلقائي</Label>
-                          <Select value={String(autoInterval)} onValueChange={(v) => setAutoInterval(Number(v))}>
-                            <SelectTrigger className="bg-slate-700/50 border-white/10 text-white">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {AUTONOMOUS_INTERVALS.map(opt => (
-                                <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <Label className="text-sm text-slate-400 mb-2 block">فترة التشغيل التلقائي</Label>
+                          <div className="grid grid-cols-3 gap-1.5 mb-2">
+                            {AUTONOMOUS_INTERVALS.map(opt => {
+                              const isSelected = autoInterval === opt.value;
+                              const isUrgent = opt.value <= 10;
+                              const isFast = opt.value > 10 && opt.value <= 60;
+                              return (
+                                <button
+                                  key={opt.value}
+                                  onClick={() => setAutoInterval(opt.value)}
+                                  className={`flex flex-col items-center gap-0 px-1.5 py-2 rounded-lg border transition-all text-center ${
+                                    isSelected
+                                      ? isUrgent
+                                        ? 'bg-rose-500/20 border-rose-500/50 text-rose-300'
+                                        : isFast
+                                          ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                                          : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                                      : 'bg-slate-700/30 border-white/5 text-slate-500 hover:bg-slate-700/50 hover:text-slate-300'
+                                  }`}
+                                >
+                                  <span className="text-[9px] font-bold">{opt.label}</span>
+                                  <span className="text-[7px] text-slate-600">{opt.desc}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {/* Custom interval in settings */}
+                          <div className="flex items-center gap-2 mt-2">
+                            <Input
+                              type="number"
+                              min="1"
+                              value={customIntervalValue}
+                              onChange={(e) => setCustomIntervalValue(e.target.value)}
+                              placeholder="رقم"
+                              className="bg-slate-700/50 border-white/10 text-white w-16 h-7 text-xs placeholder:text-slate-600"
+                              onKeyDown={(e) => { if (e.key === 'Enter') applyCustomInterval(); }}
+                            />
+                            <div className="flex rounded overflow-hidden border border-white/10">
+                              <button
+                                onClick={() => setCustomIntervalUnit('minutes')}
+                                className={`px-2 py-1 text-[9px] font-bold ${
+                                  customIntervalUnit === 'minutes' ? 'bg-amber-500/30 text-amber-300' : 'bg-slate-700/50 text-slate-500'
+                                }`}
+                              >
+                                دقيقة
+                              </button>
+                              <button
+                                onClick={() => setCustomIntervalUnit('hours')}
+                                className={`px-2 py-1 text-[9px] font-bold border-r border-white/10 ${
+                                  customIntervalUnit === 'hours' ? 'bg-amber-500/30 text-amber-300' : 'bg-slate-700/50 text-slate-500'
+                                }`}
+                              >
+                                ساعة
+                              </button>
+                            </div>
+                            <Button
+                              onClick={applyCustomInterval}
+                              disabled={!customIntervalValue || parseInt(customIntervalValue) < 1}
+                              size="sm"
+                              className="bg-amber-500 hover:bg-amber-600 text-white h-7 text-[10px] px-3"
+                            >
+                              تطبيق
+                            </Button>
+                            {autoInterval > 0 && !AUTONOMOUS_INTERVALS.find(i => i.value === autoInterval) && (
+                              <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/30 text-[9px]">
+                                ⚡ {getIntervalLabel(autoInterval)}
+                              </Badge>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <Button onClick={handleSaveBusiness} disabled={!business} className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white">

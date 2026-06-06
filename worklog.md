@@ -369,3 +369,44 @@ Stage Summary:
 - Timeline dynamically reflects user's selected preferred times
 - Quick tips provide recommended settings for different page types
 - Both explanations use consistent color coding: violet=thinking, amber=scheduling, emerald=publishing
+
+---
+Task ID: 10
+Agent: Main Agent
+Task: Add custom interval option to auto-run timer + expand speed presets with color coding
+
+Work Log:
+- Expanded AUTONOMOUS_INTERVALS from 5 to 9 presets with descriptions and colors:
+  - كل 5 دقائق (أخبار عاجلة, rose) — NEW
+  - كل 10 دقائق (أخبار سريعة, rose→orange) — NEW
+  - كل 30 دقيقة (تفاعل سريع, amber→orange) — NEW
+  - كل ساعة (نشاط مرتفع, amber→yellow) — NEW
+  - كل ساعتين (نشاط متوسط, emerald→teal)
+  - كل 4 ساعات (نشاط عادي, emerald→cyan)
+  - كل 6 ساعات (صفحة جديدة, cyan→blue)
+  - كل 12 ساعة (محتوى قليل, blue→violet)
+  - يومياً (صفحة بسيطة, violet→purple)
+- Added custom interval input system:
+  - customIntervalValue state (number input)
+  - customIntervalUnit state ('minutes' | 'hours' toggle)
+  - applyCustomInterval() function: converts input to minutes, sets autoInterval
+  - Enter key support for quick apply
+  - Badge showing "⚡ مخصص: كل X دقيقة/ساعة" when custom value is active
+- Added getIntervalLabel() helper for dynamic display of any interval
+- Replaced Select dropdowns in Dashboard with grid of clickable speed buttons:
+  - Color-coded by urgency: urgent (rose), fast (amber), normal (emerald)
+  - Each button shows label + description
+  - CheckCircle2 indicator on selected button
+  - Current interval shown as Badge at top
+  - Countdown timer display preserved
+- Added same speed button grid + custom interval in Settings tab
+- Added "توقيت مخصص" section with ⚡ icon, labeled "للأخبار والمواقف العاجلة"
+- All lint checks pass with zero errors
+- Verified with Agent Browser + VLM: all buttons render, custom interval works (tested 15 minutes)
+
+Stage Summary:
+- 9 speed presets now available: from 5 minutes (breaking news) to daily
+- Custom interval: type any number + choose minutes/hours + apply
+- Color coding: red=urgent news, amber=fast, green=normal, blue=slow
+- Custom badge shows active custom interval with ⚡ icon
+- Both Dashboard and Settings tabs have the same speed selector
