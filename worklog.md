@@ -660,3 +660,34 @@ Stage Summary:
 - If more posts than available slots today, it cycles to next day
 - Posts are NEVER saved as draft - always scheduled to nearest preferred time
 - All scheduling logic centralized in shared `schedule-utils.ts` for consistency
+
+---
+Task ID: 3
+Agent: main
+Task: Implement auto-publish for scheduled posts when time arrives
+
+Work Log:
+- Analyzed the existing auto-publish flow and found the root cause:
+  - Auto-publish only worked during agent cycles (triggered by browser setInterval)
+  - Default interval is 240 minutes (4 hours), so posts could easily miss their scheduled time
+  - No independent mechanism to check if scheduled time has arrived
+- Created `/home/z/my-project/src/app/api/publish/auto/route.ts`:
+  - GET endpoint that finds all scheduled posts where `scheduledAt <= now`
+  - Filters for posts with media ready (imageData/imageUrl for images, videoUrl for videos)
+  - Applies text overlay before publishing
+  - Publishes to Facebook or marks as published locally if no FB credentials
+  - Logs auto-publish actions to AgentLog
+  - Returns counts of published, failed, and waiting-for-media posts
+- Added frontend auto-publish checker in `page.tsx`:
+  - `checkAutoPublish` callback that calls GET /api/publish/auto
+  - `useEffect` that polls every 30 seconds
+  - Toast notification "تم النشر التلقائي! 🚀" when posts are published
+  - Initial check after 2-second delay on page load
+- Lint error fixed: Used setTimeout for initial check to avoid setState-in-effect
+
+Stage Summary:
+- Scheduled posts now auto-publish when their time arrives (within 30 seconds)
+- The checker runs independently of the agent cycle
+- Example: Post scheduled for 3:00 AM → at 3:00:30 AM the checker publishes it
+- Posts waiting for media are reported separately (not failed, just not ready yet)
+- Pushed to GitHub: https://github.com/ntrmoamsl/Autonomous-AI-Systems
