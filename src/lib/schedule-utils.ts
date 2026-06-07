@@ -157,6 +157,8 @@ export function getNextPreferredTimes(
   
   // Build a circular list of all preferred times
   // First, find the index of the first future time today
+  // Use >= so that if we're exactly at the preferred time, we schedule to the NEXT one
+  // (the current time slot is for publishing, not scheduling new posts)
   let startIdx = -1;
   for (let i = 0; i < preferredTimeSlots.length; i++) {
     if (preferredTimeSlots[i].totalMinutes > currentTotalMinutes) {

@@ -239,6 +239,7 @@ export default function Home() {
   const [countdown, setCountdown] = useState(0);
   const [agentRunning, setAgentRunning] = useState(false);
   const autoRunRef = useRef<NodeJS.Timeout | null>(null);
+  const autoPublishRef = useRef<NodeJS.Timeout | null>(null);
 
   // Helper: get display label for current interval
   const getIntervalLabel = (minutes: number) => {
@@ -558,6 +559,53 @@ export default function Home() {
       }
     };
   }, [imageTasks, pollImageTasks]);
+
+  // ============================================================
+  // Auto-Publish Checker — runs every 30 seconds
+  // Checks if any scheduled posts have reached their publish time
+  // and publishes them automatically
+  // ============================================================
+  const checkAutoPublish = useCallback(async () => {
+    if (!business) return;
+    try {
+      const res = await fetch(`/api/publish/auto?businessId=${business.id}`);
+      const data = await res.json();
+      if (data.publishedCount > 0) {
+        await loadPosts();
+        toast({
+          title: 'تم النشر التلقائي! 🚀',
+          description: data.message,
+        });
+      }
+    } catch {
+      // Silent fail — auto-publish checker shouldn't disrupt UX
+    }
+  }, [business, loadPosts]);
+
+  useEffect(() => {
+    if (!business) return;
+    // Then check every 30 seconds
+    if (!autoPublishRef.current) {
+      // Initial check after a short delay to avoid setState in effect
+      const initialTimer = setTimeout(() => {
+        checkAutoPublish();
+      }, 2000);
+      autoPublishRef.current = setInterval(checkAutoPublish, 30000);
+      return () => {
+        clearTimeout(initialTimer);
+        if (autoPublishRef.current) {
+          clearInterval(autoPublishRef.current);
+          autoPublishRef.current = null;
+        }
+      };
+    }
+    return () => {
+      if (autoPublishRef.current) {
+        clearInterval(autoPublishRef.current);
+        autoPublishRef.current = null;
+      }
+    };
+  }, [business, checkAutoPublish]);
 
   // ============================================================
   // Handlers (declared before effects that reference them)
