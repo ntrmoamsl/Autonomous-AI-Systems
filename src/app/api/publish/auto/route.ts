@@ -2,13 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getFacebookConfig } from '@/lib/config';
 import { addTextOverlayToBase64, addTextOverlayFromUrl } from '@/lib/text-overlay';
+import { publishToFacebook, isMediaReady, type PublishPost } from '@/lib/facebook-publish';
 
 /**
  * GET /api/publish/auto
- * 
+ *
  * Auto-publish scheduled posts whose time has arrived.
- * Called periodically by the frontend (every 30 seconds).
- * 
+ * Called periodically by:
+ * - Frontend polling (every 30 seconds) — requires businessId
+ * - Background cron job (every 60 seconds) — uses checkAll=true
+ *
  * Flow:
  * 1. Find all scheduled posts where scheduledAt <= now
  * 2. Check that media is ready (imageData/imageUrl for images, videoUrl for videos)
@@ -19,22 +22,34 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const businessId = searchParams.get('businessId');
+    const checkAll = searchParams.get('checkAll') === 'true';
 
-    if (!businessId) {
-      return NextResponse.json({ error: 'businessId required' }, { status: 400 });
+    // Either businessId or checkAll is required
+    if (!businessId && !checkAll) {
+      return NextResponse.json({ error: 'businessId or checkAll=true required' }, { status: 400 });
     }
 
     const now = new Date();
 
+    // Build the where clause
+    const whereClause: any = {
+      status: 'scheduled',
+      scheduledAt: { lte: now },
+    };
+
+    if (businessId) {
+      whereClause.businessId = businessId;
+    }
+
     // Find all scheduled posts that are due for publishing
-    // scheduledAt <= now means the publish time has arrived or passed
     const duePosts = await db.contentPost.findMany({
-      where: {
-        businessId,
-        status: 'scheduled',
-        scheduledAt: { lte: now },
-      },
+      where: whereClause,
       orderBy: { scheduledAt: 'asc' },
+      include: checkAll ? {
+        business: {
+          select: { companyName: true },
+        },
+      } : undefined,
     });
 
     if (duePosts.length === 0) {
@@ -45,22 +60,20 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Filter posts that have media ready
-    const readyPosts = duePosts.filter(post => {
-      if (post.mediaType === 'video') {
-        return !!post.videoUrl;
-      }
-      // Image or default
-      return !!post.imageData || !!post.imageUrl;
-    });
+    // Separate ready posts from those waiting for media
+    const readyPosts = duePosts.filter(post => isMediaReady({
+      mediaType: post.mediaType || 'image',
+      videoUrl: post.videoUrl,
+      imageData: post.imageData,
+      imageUrl: post.imageUrl,
+    } as PublishPost));
 
-    // Also include posts still waiting for media (skip them but report)
-    const waitingForMedia = duePosts.filter(post => {
-      if (post.mediaType === 'video') {
-        return !post.videoUrl;
-      }
-      return !post.imageData && !post.imageUrl;
-    });
+    const waitingForMedia = duePosts.filter(post => !isMediaReady({
+      mediaType: post.mediaType || 'image',
+      videoUrl: post.videoUrl,
+      imageData: post.imageData,
+      imageUrl: post.imageUrl,
+    } as PublishPost));
 
     if (readyPosts.length === 0) {
       return NextResponse.json({
@@ -71,7 +84,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const { accessToken, pageId, apiVersion } = getFacebookConfig();
+    const config = getFacebookConfig();
     let publishedCount = 0;
     let failedCount = 0;
     const publishedIds: string[] = [];
@@ -114,7 +127,7 @@ export async function GET(req: NextRequest) {
         }
 
         // Publish to Facebook (or locally if no credentials)
-        if (!accessToken || !pageId) {
+        if (!config.accessToken || !config.pageId) {
           // No Facebook config — mark as published locally
           await db.contentPost.update({
             where: { id: post.id },
@@ -129,73 +142,28 @@ export async function GET(req: NextRequest) {
           continue;
         }
 
-        const fbBaseUrl = `https://graph.facebook.com/${apiVersion}/${pageId}`;
-        const message = `${post.content}\n\n${post.hashtags ? post.hashtags.split(',').map((h: string) => h.startsWith('#') ? h : `#${h}`).join(' ') : ''}${post.cta ? '\n\n' + post.cta : ''}`;
+        // Use shared publishing utility
+        const result = await publishToFacebook(
+          {
+            id: post.id,
+            content: post.content,
+            hashtags: post.hashtags,
+            cta: post.cta,
+            imageUrl: post.imageUrl,
+            imageData: post.imageData,
+            videoUrl: post.videoUrl,
+            mediaType: post.mediaType || 'image',
+            textOverlay: post.textOverlay,
+          },
+          config
+        );
 
-        let fbResponse;
-
-        if (post.mediaType === 'video' && post.videoUrl) {
-          // Publish video
-          const videoRes = await fetch(
-            `${fbBaseUrl}/videos?access_token=${accessToken}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                file_url: post.videoUrl,
-                description: message,
-              }),
-            }
-          );
-          fbResponse = await videoRes.json();
-        } else if (post.imageUrl || post.imageData) {
-          // Publish image
-          const imageRes = await fetch(
-            `${fbBaseUrl}/photos?access_token=${accessToken}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                message,
-                url: post.imageUrl || '',
-                published: true,
-              }),
-            }
-          );
-
-          if (!imageRes.ok) {
-            // Fallback to text-only post
-            const textRes = await fetch(
-              `${fbBaseUrl}/feed?access_token=${accessToken}`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message }),
-              }
-            );
-            fbResponse = await textRes.json();
-          } else {
-            fbResponse = await imageRes.json();
-          }
-        } else {
-          // Text only
-          const res = await fetch(
-            `${fbBaseUrl}/feed?access_token=${accessToken}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ message }),
-            }
-          );
-          fbResponse = await res.json();
-        }
-
-        if (fbResponse.error) {
+        if (!result.success) {
           await db.contentPost.update({
             where: { id: post.id },
             data: {
               status: 'failed',
-              publishResult: JSON.stringify(fbResponse.error),
+              publishResult: JSON.stringify(result.error || result.fbResponse?.error),
               retryCount: post.retryCount + 1,
             },
           });
@@ -206,7 +174,7 @@ export async function GET(req: NextRequest) {
             data: {
               status: 'published',
               publishedAt: new Date(),
-              publishResult: JSON.stringify(fbResponse),
+              publishResult: JSON.stringify(result.fbResponse),
             },
           });
           publishedIds.push(post.id);
@@ -218,17 +186,25 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Log to agent log
+    // Log to agent log for each business
     if (publishedCount > 0 || failedCount > 0) {
       try {
-        await db.agentLog.create({
-          data: {
-            businessId,
-            action: 'auto_publish',
-            decision: `نشر تلقائي: ${publishedCount} نجح، ${failedCount} فشل، ${waitingForMedia.length} ينتظر وسائط`,
-            isAutonomous: true,
-          },
-        });
+        // Get unique business IDs from the published posts
+        const businessIds = [...new Set(readyPosts.map(p => p.businessId))];
+        for (const bizId of businessIds) {
+          const bizPosts = readyPosts.filter(p => p.businessId === bizId);
+          const bizPublished = bizPosts.filter(p => publishedIds.includes(p.id)).length;
+          const bizFailed = bizPosts.filter(p => p.status === 'failed').length;
+
+          await db.agentLog.create({
+            data: {
+              businessId: bizId,
+              action: 'auto_publish',
+              decision: `نشر تلقائي: ${bizPublished} نجح، ${bizFailed} فشل`,
+              isAutonomous: true,
+            },
+          });
+        }
       } catch {
         // Log failure shouldn't block the flow
       }

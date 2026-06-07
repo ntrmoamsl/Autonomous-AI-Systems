@@ -15,6 +15,7 @@ import { callClaudeOpus, createImageTask, createVideoTask, getKieTaskDetail } fr
 import { getFacebookConfig } from '@/lib/config';
 import { addTextOverlay, createVideoPromptWithText } from '@/lib/text-overlay';
 import { parsePreferredTimes, getNextPreferredTimes, parseArabicTime as sharedParseArabicTime } from '@/lib/schedule-utils';
+import { publishToFacebook } from '@/lib/facebook-publish';
 
 // ============================================================
 // Types
@@ -535,9 +536,9 @@ async function executePublishPostById(postId: string): Promise<{ success: boolea
   const post = await db.contentPost.findUnique({ where: { id: postId } });
   if (!post) return { success: false, details: 'Post not found' };
 
-  const { accessToken, pageId, apiVersion } = getFacebookConfig();
+  const config = getFacebookConfig();
 
-  if (!accessToken || !pageId) {
+  if (!config.accessToken || !config.pageId) {
     // Mark as "published" locally if no Facebook config
     await db.contentPost.update({
       where: { id: postId },
@@ -547,76 +548,53 @@ async function executePublishPostById(postId: string): Promise<{ success: boolea
   }
 
   try {
-    let fbResponse;
-    const fbBaseUrl = `https://graph.facebook.com/${apiVersion}/${pageId}`;
-    const message = `${post.content}\n\n${post.hashtags ? post.hashtags.split(',').map((h: string) => h.startsWith('#') ? h : `#${h}`).join(' ') : ''}${post.cta ? '\n\n' + post.cta : ''}`;
-
-    if (post.mediaType === 'video' && post.videoUrl) {
-      // Publish video post
-      const videoRes = await fetch(
-        `${fbBaseUrl}/videos?access_token=${accessToken}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            file_url: post.videoUrl,
-            description: message,
-          }),
-        }
-      );
-      fbResponse = await videoRes.json();
-    } else if (post.imageData) {
-      // Publish image post (with text overlay already applied)
-      const imageRes = await fetch(
-        `${fbBaseUrl}/photos?access_token=${accessToken}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message,
-            url: post.imageUrl || '',
-            published: true,
-          }),
-        }
-      );
-      
-      if (!imageRes.ok) {
-        // Fallback: text-only post
-        const textRes = await fetch(
-          `${fbBaseUrl}/feed?access_token=${accessToken}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message }),
-          }
-        );
-        fbResponse = await textRes.json();
-      } else {
-        fbResponse = await imageRes.json();
+    // Apply text overlay if needed (image posts)
+    if (post.mediaType === 'image' && post.textOverlay && post.imageData) {
+      try {
+        const imageBuffer = Buffer.from(post.imageData, 'base64');
+        const overlayBuffer = await addTextOverlay(imageBuffer, {
+          text: post.textOverlay,
+          fontSize: 42,
+          position: 'bottom',
+          backgroundColor: 'rgba(0,0,0,0.65)',
+        });
+        const overlayBase64 = overlayBuffer.toString('base64');
+        await db.contentPost.update({
+          where: { id: postId },
+          data: { imageData: overlayBase64 },
+        });
+        post.imageData = overlayBase64;
+      } catch {
+        // Continue without overlay
       }
-    } else {
-      // Text-only post (shouldn't happen with the new rules, but fallback)
-      const res = await fetch(
-        `${fbBaseUrl}/feed?access_token=${accessToken}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message }),
-        }
-      );
-      fbResponse = await res.json();
     }
 
-    if (fbResponse.error) {
+    // Use shared publishing utility (handles base64, URL, video, text-only)
+    const result = await publishToFacebook(
+      {
+        id: post.id,
+        content: post.content,
+        hashtags: post.hashtags,
+        cta: post.cta,
+        imageUrl: post.imageUrl,
+        imageData: post.imageData,
+        videoUrl: post.videoUrl,
+        mediaType: post.mediaType || 'image',
+        textOverlay: post.textOverlay,
+      },
+      config
+    );
+
+    if (!result.success) {
       await db.contentPost.update({
         where: { id: postId },
         data: {
           status: 'failed',
-          publishResult: JSON.stringify(fbResponse.error),
+          publishResult: JSON.stringify(result.error || result.fbResponse?.error),
           retryCount: post.retryCount + 1,
         },
       });
-      return { success: false, details: `Facebook error: ${fbResponse.error.message || JSON.stringify(fbResponse.error)}`, postId };
+      return { success: false, details: `Facebook error: ${JSON.stringify(result.error || result.fbResponse?.error)}`, postId };
     }
 
     await db.contentPost.update({
@@ -624,11 +602,11 @@ async function executePublishPostById(postId: string): Promise<{ success: boolea
       data: {
         status: 'published',
         publishedAt: new Date(),
-        publishResult: JSON.stringify(fbResponse),
+        publishResult: JSON.stringify(result.fbResponse),
       },
     });
 
-    return { success: true, details: `Post published to Facebook as ${post.mediaType || 'image'} post`, postId };
+    return { success: true, details: `Post published to Facebook via ${result.method}`, postId };
   } catch (error) {
     await db.contentPost.update({
       where: { id: postId },

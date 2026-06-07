@@ -1035,7 +1035,7 @@ export default function Home() {
           )}
 
           {/* Agent status indicator */}
-          <div className="px-2 py-2 border-t border-white/10">
+          <div className="px-2 py-2 border-t border-white/10 space-y-1">
             <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-800/50">
               {agentStatus?.isRunning ? (
                 <>
@@ -1051,6 +1051,14 @@ export default function Home() {
                   {!sidebarCollapsed && <span className="text-xs text-slate-400">الوكيل خامل</span>}
                 </>
               )}
+            </div>
+            {/* Auto-Publish Scheduler Status */}
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-800/50">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-50"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-violet-500"></span>
+              </span>
+              {!sidebarCollapsed && <span className="text-xs text-violet-400" title="فحص تلقائي للمنشورات المستحقة كل 60 ثانية — يعمل حتى بدون فتح المتصفح">نشر تلقائي نشط</span>}
             </div>
           </div>
 
@@ -3003,7 +3011,7 @@ export default function Home() {
 
           {/* ============ FOOTER ============ */}
           <footer className="sticky bottom-0 mt-auto border-t border-white/5 bg-slate-900/60 backdrop-blur-xl px-4 sm:px-6 py-3 z-30">
-            <div className="flex items-center justify-center gap-2 text-xs text-slate-500">
+            <div className="flex items-center justify-center gap-2 text-xs text-slate-500 flex-wrap">
               <Sparkles className="w-3 h-3" />
               <span>مدعوم بالذكاء الاصطناعي</span>
               <Separator orientation="vertical" className="h-3 bg-white/10" />
@@ -3012,6 +3020,14 @@ export default function Home() {
               <span className="font-mono text-violet-400/70">GPT Image-2</span>
               <span>+</span>
               <span className="font-mono text-rose-400/70">Grok Imagine</span>
+              <Separator orientation="vertical" className="h-3 bg-white/10" />
+              <span className="flex items-center gap-1">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                </span>
+                النشر التلقائي نشط
+              </span>
             </div>
           </footer>
         </main>

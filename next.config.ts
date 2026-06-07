@@ -6,6 +6,10 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  // Enable instrumentation.ts for auto-publish background scheduler
+  experimental: {
+    instrumentationHook: true,
+  },
 };
 
 export default nextConfig;

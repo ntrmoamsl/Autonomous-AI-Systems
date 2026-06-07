@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getFacebookConfig } from '@/lib/config';
 import { addTextOverlayToBase64, addTextOverlayFromUrl } from '@/lib/text-overlay';
+import { publishToFacebook, type PublishPost } from '@/lib/facebook-publish';
 
 // POST - Publish a post to Facebook (with text overlay on images)
 export async function POST(req: NextRequest) {
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Post not found' }, { status: 404 });
     }
 
-    const { accessToken, pageId, apiVersion } = getFacebookConfig();
+    const { accessToken, pageId } = getFacebookConfig();
 
     // Apply text overlay on image if not already done and text overlay exists
     if (post.mediaType === 'image' && post.textOverlay && post.imageData) {
@@ -33,7 +34,6 @@ export async function POST(req: NextRequest) {
           where: { id: postId },
           data: { imageData: overlayBase64 },
         });
-        // Update the post reference
         post.imageData = overlayBase64;
       } catch (overlayError) {
         console.error('Error applying text overlay:', overlayError);
@@ -61,78 +61,37 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Facebook credentials not configured' }, { status: 500 });
     }
 
-    let fbResponse;
-    const fbBaseUrl = `https://graph.facebook.com/${apiVersion}/${pageId}`;
-    const message = `${post.content}\n\n${post.hashtags ? post.hashtags.split(',').map((h: string) => h.startsWith('#') ? h : `#${h}`).join(' ') : ''}${post.cta ? '\n\n' + post.cta : ''}`;
+    // Use the shared publishing utility
+    const result = await publishToFacebook(
+      {
+        id: post.id,
+        content: post.content,
+        hashtags: post.hashtags,
+        cta: post.cta,
+        imageUrl: post.imageUrl,
+        imageData: post.imageData,
+        videoUrl: post.videoUrl,
+        mediaType: post.mediaType || 'image',
+        textOverlay: post.textOverlay,
+      },
+      getFacebookConfig()
+    );
 
-    if (post.mediaType === 'video' && post.videoUrl) {
-      // Publish video post
-      const videoRes = await fetch(
-        `${fbBaseUrl}/videos?access_token=${accessToken}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            file_url: post.videoUrl,
-            description: message,
-          }),
-        }
-      );
-      fbResponse = await videoRes.json();
-    } else if (post.imageData) {
-      // Publish image post (with text overlay already applied)
-      const imageRes = await fetch(
-        `${fbBaseUrl}/photos?access_token=${accessToken}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message,
-            url: post.imageUrl || '',
-            published: true,
-          }),
-        }
-      );
-
-      if (!imageRes.ok) {
-        // Try alternative method - publish text only
-        const textRes = await fetch(
-          `${fbBaseUrl}/feed?access_token=${accessToken}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message }),
-          }
-        );
-        fbResponse = await textRes.json();
-      } else {
-        fbResponse = await imageRes.json();
-      }
-    } else {
-      // Publish text only
-      const res = await fetch(
-        `${fbBaseUrl}/feed?access_token=${accessToken}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message }),
-        }
-      );
-      fbResponse = await res.json();
-    }
-
-    if (fbResponse.error) {
+    if (!result.success) {
       // Update post as failed
       await db.contentPost.update({
         where: { id: postId },
         data: {
           status: 'failed',
-          publishResult: JSON.stringify(fbResponse.error),
+          publishResult: JSON.stringify(result.error || result.fbResponse?.error),
           retryCount: post.retryCount + 1,
         },
       });
 
-      return NextResponse.json({ error: fbResponse.error }, { status: 400 });
+      return NextResponse.json(
+        { error: result.error || result.fbResponse?.error || 'Facebook publish failed' },
+        { status: 400 }
+      );
     }
 
     // Update post as published
@@ -141,13 +100,14 @@ export async function POST(req: NextRequest) {
       data: {
         status: 'published',
         publishedAt: new Date(),
-        publishResult: JSON.stringify(fbResponse),
+        publishResult: JSON.stringify(result.fbResponse),
       },
     });
 
     return NextResponse.json({
       success: true,
-      fbResponse,
+      fbResponse: result.fbResponse,
+      method: result.method,
       mediaType: post.mediaType || 'image',
     });
   } catch (error) {
